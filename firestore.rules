@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidLeaderboardEntry(data) {
+      return data.keys().hasAll(['playerName', 'score', 'difficulty', 'userId', 'createdAt'])
+        && data.keys().size() == 5
+        && data.playerName is string && data.playerName.size() >= 2 && data.playerName.size() <= 20
+        && data.score is int && data.score >= 0 && data.score < 100000
+        && data.difficulty in ['EASY', 'MEDIUM', 'HARD']
+        && data.userId == request.auth.uid
+        && data.createdAt == request.time;
+    }
+
+    // --- Collections ---
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /leaderboard/{entryId} {
+      // Publicly viewable
+      allow list: if true;
+      allow get: if true;
+
+      // Only creation allowed, entries are immutable for integrity
+      allow create: if isSignedIn() 
+        && isValidId(entryId)
+        && isValidLeaderboardEntry(incoming());
+      
+      allow update, delete: if false;
+    }
+  }
+}

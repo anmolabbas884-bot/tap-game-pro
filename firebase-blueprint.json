@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "LeaderboardEntry": {
+      "title": "Leaderboard Entry",
+      "description": "Represents a high score entry on the global leaderboard.",
+      "type": "object",
+      "properties": {
+        "playerName": {
+          "type": "string",
+          "description": "The name of the player."
+        },
+        "score": {
+          "type": "integer",
+          "description": "The score achieved."
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["EASY", "MEDIUM", "HARD"],
+          "description": "The difficulty setting for the session."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The Firebase Auth UID of the player."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the score was recorded."
+        }
+      },
+      "required": ["playerName", "score", "difficulty", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/leaderboard/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Collection of global high scores."
+    }
+  }
+}

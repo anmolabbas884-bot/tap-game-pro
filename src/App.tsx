@@ -5,7 +5,9 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info, Settings, Sliders, Palette, Check, Maximize, Minimize, Star, Clock } from 'lucide-react';
+import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info, Settings, Sliders, Palette, Check, Maximize, Minimize, Star, Clock, User, Activity } from 'lucide-react';
+import { initFirebase, auth, signInWithGoogle } from './lib/firebase';
+import { getTopScores, saveHighScore, LeaderboardEntry } from './services/leaderboardService';
 
 interface Circle {
   id: number;
@@ -32,6 +34,7 @@ interface TapEffect {
   color: string;
   particles: Particle[];
   isKeyboard?: boolean;
+  type?: Circle['type'];
 }
 
 const COLORS = ["#22c55e", "#38bdf8", "#facc15", "#fb7185", "#a855f7"];
@@ -60,10 +63,10 @@ const THEMES: Record<Theme, { name: string; primary: string; secondary: string; 
 
 type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
 
-const DIFFICULTY_SETTINGS: Record<Difficulty, { speed: number; label: string; color: string }> = {
-  EASY: { speed: 1500, label: 'Easy', color: 'text-emerald-400' },
-  MEDIUM: { speed: 1200, label: 'Medium', color: 'text-sky-400' },
-  HARD: { speed: 800, label: 'Hard', color: 'text-rose-400' }
+const DIFFICULTY_SETTINGS: Record<Difficulty, { speed: number; label: string; color: string; multiplier: number }> = {
+  EASY: { speed: 1500, label: 'Easy', color: 'text-emerald-400', multiplier: 1 },
+  MEDIUM: { speed: 1200, label: 'Medium', color: 'text-sky-400', multiplier: 2 },
+  HARD: { speed: 800, label: 'Hard', color: 'text-rose-400', multiplier: 3 }
 };
 
 export default function App() {
@@ -71,38 +74,83 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(30);
   const [isGameRunning, setIsGameRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [difficulty, setDifficulty] = useState<Difficulty>('MEDIUM');
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => {
+    const saved = localStorage.getItem("tapDifficulty");
+    return (saved as Difficulty) || 'MEDIUM';
+  });
   const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState(0.5);
-  const [theme, setTheme] = useState<Theme>('CLASSIC');
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem("tapVolume");
+    return saved ? parseFloat(saved) : 0.5;
+  });
+  const [soundSettings, setSoundSettings] = useState(() => {
+    const saved = localStorage.getItem("tapSoundSettings");
+    return saved ? JSON.parse(saved) : {
+      tap: true,
+      bonus: true,
+      miss: true,
+      combo: true
+    };
+  });
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem("tapTheme");
+    return (saved as Theme) || 'CLASSIC';
+  });
+  const [user, setUser] = useState(auth.currentUser);
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem("tapPlayerName") || "Player " + Math.floor(Math.random() * 1000));
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
-  const [sessionDuration, setSessionDuration] = useState(30);
+  const [sessionDuration, setSessionDuration] = useState(() => {
+    const saved = localStorage.getItem("tapSessionDuration");
+    return saved ? parseInt(saved, 10) : 30;
+  });
   const lastTapTime = useRef(0);
   const [highScore, setHighScore] = useState(() => {
     const saved = localStorage.getItem("tapHighScore");
     return saved ? parseInt(saved, 10) : 0;
   });
-  const [speed, setSpeed] = useState(1200);
+  const [speed, setSpeed] = useState(() => {
+    const savedDifficulty = localStorage.getItem("tapDifficulty") as Difficulty;
+    return DIFFICULTY_SETTINGS[savedDifficulty || 'MEDIUM'].speed;
+  });
+  const [spawnRateMultiplier, setSpawnRateMultiplier] = useState(() => {
+    const saved = localStorage.getItem("tapSpawnRateMultiplier");
+    return saved ? parseFloat(saved) : 1.0;
+  });
   const [circles, setCircles] = useState<Circle[]>([]);
   const [effects, setEffects] = useState<TapEffect[]>([]);
   const [isKeyboardHit, setIsKeyboardHit] = useState(false);
+  const [isBonusHit, setIsBonusHit] = useState(false);
+  const [sensitivity, setSensitivity] = useState(() => {
+    const saved = localStorage.getItem("tapSensitivity");
+    return saved ? parseFloat(saved) : 1.2;
+  });
   const [lastHitColor, setLastHitColor] = useState("#38bdf8");
   const [isMissed, setIsMissed] = useState(false);
   const [isMobileMode, setIsMobileMode] = useState(() => {
+    const saved = localStorage.getItem("tapMobileMode");
+    if (saved !== null) return saved === 'true';
+    
     // Only detect if window is available (client-side)
     if (typeof window !== 'undefined') {
       return (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
     }
     return false;
   });
+  const [showKeyHints, setShowKeyHints] = useState(() => {
+    const saved = localStorage.getItem("tapShowKeyHints");
+    return saved === null ? true : saved === 'true';
+  });
   const [lastKey, setLastKey] = useState("");
   const [showIntro, setShowIntro] = useState(true);
   const [introStep, setIntroStep] = useState<'TITLE' | 'SETUP'>('TITLE');
   
   const [showHelp, setShowHelp] = useState(false);
+  const [difficultyMessage, setDifficultyMessage] = useState<string | null>(null);
   const [preGameCountdown, setPreGameCountdown] = useState<number | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   
@@ -139,6 +187,7 @@ export default function App() {
   const musicIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
   const musicBufferRef = useRef<AudioBuffer | null>(null);
+  const isFadingMusic = useRef(false);
 
   // Background Beat Logic
   const startBackgroundMusic = useCallback(() => {
@@ -176,7 +225,7 @@ export default function App() {
     const bassSeq = difficulty === 'HARD' ? [40, 0, 0, 45, 0, 40, 50, 0] : [40, 0, 0, 0, 40, 0, 0, 0];
 
     const playBeat = () => {
-      if (!isGameRunning || isPaused || isMuted) return;
+      if (((!isGameRunning && !isFadingMusic.current) || isPaused || isMuted)) return;
       
       const time = ctx.currentTime + 0.05; // Schedule slightly ahead for stability
       
@@ -273,7 +322,7 @@ export default function App() {
   useEffect(() => {
     if (isGameRunning && !isPaused && !isMuted) {
       startBackgroundMusic();
-    } else {
+    } else if (!isFadingMusic.current) {
       if (musicIntervalRef.current) {
         clearInterval(musicIntervalRef.current);
         musicIntervalRef.current = null;
@@ -306,6 +355,55 @@ export default function App() {
       }
     }
   }, []);
+
+  // Initialize Firebase and fetch leaderboard
+  useEffect(() => {
+    const init = async () => {
+      await initFirebase();
+      refreshLeaderboard();
+    };
+    init();
+
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setUser(user);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSignIn = async () => {
+    try {
+      const user = await signInWithGoogle();
+      if (user && user.displayName) {
+        setPlayerName(user.displayName);
+        localStorage.setItem("tapPlayerName", user.displayName);
+      }
+    } catch (err) {
+      console.error("Sign in failed:", err);
+    }
+  };
+
+  const refreshLeaderboard = async () => {
+    setIsLeaderboardLoading(true);
+    try {
+      const topScores = await getTopScores(5);
+      setLeaderboard(topScores);
+    } catch (error) {
+      console.error("Failed to fetch leaderboard:", error);
+    } finally {
+      setIsLeaderboardLoading(false);
+    }
+  };
+
+  const syncScoreToLeaderboard = useCallback(async (finalScore: number) => {
+    if (finalScore <= 0 || !auth.currentUser) return;
+    try {
+      await saveHighScore(playerName, finalScore, difficulty);
+      refreshLeaderboard();
+    } catch (error) {
+      console.error("Error saving high score:", error);
+    }
+  }, [playerName, difficulty]);
 
   // Update music gain when muted changes
   useEffect(() => {
@@ -360,26 +458,71 @@ export default function App() {
   }, [playSound]);
 
   const playBonusSound = useCallback(() => {
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+    if (!soundSettings.bonus) return;
+    // Shimmery arpeggio
+    const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98]; // C5, E5, G5, C6, E6, G6
     notes.forEach((freq, i) => {
-      setTimeout(() => playSound(freq, 'sine', 0.15, 0.05, true), i * 60);
+      setTimeout(() => playSound(freq, 'sine', 0.2, 0.04, true), i * 40);
     });
-  }, [playSound]);
+  }, [playSound, soundSettings.bonus]);
 
   const playMissSound = useCallback(() => {
-    // Dissonant, low-frequency buzz for misses
-    playSound(90, 'sawtooth', 0.1, 0.1, false);
-    setTimeout(() => playSound(60, 'sawtooth', 0.15, 0.1, false), 40);
+    if (!soundSettings.miss) {
+      setIsMissed(true);
+      setTimeout(() => setIsMissed(false), 150);
+      return;
+    }
+    // Dissonant, low-frequency buzz for misses with a thud
+    playSound(70, 'triangle', 0.2, 0.15, false); // Sub thud
+    setTimeout(() => playSound(90, 'sawtooth', 0.1, 0.1, false), 20); // Buzz
+    setTimeout(() => playSound(60, 'sawtooth', 0.15, 0.1, false), 60);
     setIsMissed(true);
     setTimeout(() => setIsMissed(false), 150);
-  }, [playSound]);
+  }, [playSound, soundSettings.miss]);
 
   const playComboMilestoneSound = useCallback(() => {
+    if (!soundSettings.combo) return;
     const notes = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5 (Major chord)
     notes.forEach((freq, i) => {
       setTimeout(() => playSound(freq, 'sine', 0.2, 0.1, true), i * 40);
     });
+  }, [playSound, soundSettings.combo]);
+
+  const playKeyboardTapSound = useCallback(() => {
+    // Sharp, crisp technical click to differentiate from touch
+    // High frequency transient
+    playSound(3200, 'square', 0.02, 0.04, false);
+    // Metallic resonance
+    setTimeout(() => playSound(1600, 'triangle', 0.05, 0.03, true), 10);
   }, [playSound]);
+
+  // Dynamic Difficulty progression
+  useEffect(() => {
+    if (!isGameRunning || isPaused) return;
+
+    let newDifficulty: Difficulty | null = null;
+    
+    if (score >= 150 && difficulty !== 'HARD') {
+      newDifficulty = 'HARD';
+    } else if (score >= 50 && difficulty === 'EASY') {
+      newDifficulty = 'MEDIUM';
+    }
+
+    if (newDifficulty) {
+      setDifficulty(newDifficulty);
+      setSpeed(DIFFICULTY_SETTINGS[newDifficulty].speed);
+      
+      // Visual feedback
+      setDifficultyMessage(`${newDifficulty} MODE ACTIVATED!`);
+      playSound(880, 'square', 0.5, 0.1, true);
+      
+      const timer = setTimeout(() => {
+        setDifficultyMessage(null);
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [score, difficulty, isGameRunning, isPaused, playSound]);
 
   const resetHighScore = () => {
     if (window.confirm("Are you sure you want to reset your high score to 0?")) {
@@ -436,15 +579,37 @@ export default function App() {
   }, [preGameCountdown, runGame, playSound]);
 
   const endGame = useCallback(() => {
+    if (musicGainRef.current && audioContextRef.current) {
+      isFadingMusic.current = true;
+      const ctx = audioContextRef.current;
+      musicGainRef.current.gain.cancelScheduledValues(ctx.currentTime);
+      musicGainRef.current.gain.setTargetAtTime(0, ctx.currentTime, 0.4);
+      
+      setTimeout(() => {
+        isFadingMusic.current = false;
+        if (musicIntervalRef.current) {
+          clearInterval(musicIntervalRef.current);
+          musicIntervalRef.current = null;
+        }
+      }, 1500);
+    } else {
+      if (musicIntervalRef.current) {
+        clearInterval(musicIntervalRef.current);
+        musicIntervalRef.current = null;
+      }
+    }
+
     setIsGameRunning(false);
     setIsPaused(false);
     setCircles([]);
     if (timerRef.current) clearInterval(timerRef.current);
     if (spawnTimerRef.current) clearTimeout(spawnTimerRef.current);
-    if (musicIntervalRef.current) clearInterval(musicIntervalRef.current);
-    musicIntervalRef.current = null;
-    if (scoreRef.current > 0) playGameOverSound();
-  }, [playGameOverSound]);
+    
+    if (scoreRef.current > 0) {
+      playGameOverSound();
+      syncScoreToLeaderboard(scoreRef.current);
+    }
+  }, [playGameOverSound, syncScoreToLeaderboard]);
 
   // Sync high score
   useEffect(() => {
@@ -453,6 +618,20 @@ export default function App() {
       localStorage.setItem("tapHighScore", score.toString());
     }
   }, [score, highScore]);
+
+  // Persist settings to localStorage
+  useEffect(() => {
+    localStorage.setItem("tapDifficulty", difficulty);
+    localStorage.setItem("tapVolume", volume.toString());
+    localStorage.setItem("tapTheme", theme);
+    localStorage.setItem("tapSessionDuration", sessionDuration.toString());
+    localStorage.setItem("tapMobileMode", isMobileMode.toString());
+    localStorage.setItem("tapSoundSettings", JSON.stringify(soundSettings));
+    localStorage.setItem("tapSensitivity", sensitivity.toString());
+    localStorage.setItem("tapPlayerName", playerName);
+    localStorage.setItem("tapSpawnRateMultiplier", spawnRateMultiplier.toString());
+    localStorage.setItem("tapShowKeyHints", showKeyHints.toString());
+  }, [difficulty, volume, theme, sessionDuration, isMobileMode, soundSettings, sensitivity, playerName, spawnRateMultiplier, showKeyHints]);
 
   const togglePause = () => {
     if (!isGameRunning) return;
@@ -535,13 +714,13 @@ export default function App() {
       if (!isPaused) {
         setCircles(prev => prev.filter(c => c.id !== newCircle.id));
       }
-    }, speed);
+    }, speed / spawnRateMultiplier);
 
     // Schedule next spawn
     spawnTimerRef.current = setTimeout(() => {
       spawnCircle();
-    }, speed * 0.8); // Slight overlap for continuity
-  }, [isGameRunning, isPaused, speed, dimensions, difficulty]);
+    }, (speed / spawnRateMultiplier) * 0.8); // Slight overlap for continuity
+  }, [isGameRunning, isPaused, speed, dimensions, difficulty, spawnRateMultiplier]);
 
   useEffect(() => {
     if (isGameRunning && !isPaused) {
@@ -560,7 +739,8 @@ export default function App() {
     
     // Update combo
     let newCombo = comboRef.current;
-    if (timeSinceLastTap < 1000) {
+    const comboWindow = 1000 * (sensitivity * 0.833); // Normal sensitivity 1.2 -> 1000ms. 0.8 -> ~666ms. 2.5 -> ~2080ms.
+    if (timeSinceLastTap < comboWindow) {
       newCombo = newCombo + 1;
     } else {
       newCombo = 1;
@@ -570,10 +750,12 @@ export default function App() {
     comboRef.current = newCombo;
     lastTapTime.current = now;
 
+    const multiplier = DIFFICULTY_SETTINGS[difficulty].multiplier;
     setScore(prev => {
       let bonus = 1;
       if (circle.type === 'BONUS_POINTS') bonus = 10;
-      const next = prev + bonus;
+      const points = bonus * multiplier;
+      const next = prev + points;
       scoreRef.current = next;
       return next;
     });
@@ -582,46 +764,62 @@ export default function App() {
       setTimeLeft(prev => prev + 5);
     }
 
+    if (circle.type !== 'NORMAL') {
+      setIsBonusHit(true);
+      setTimeout(() => setIsBonusHit(false), 300);
+    }
+
     setLastHitColor(circle.color);
     setCircles(prev => prev.filter(c => c.id !== circle.id));
     
-    // Play sound logic using current values
-    const currentScore = scoreRef.current;
-    const isBonus = currentScore % 5 === 0 || circle.type !== 'NORMAL';
-    if (isBonus || circle.type !== 'NORMAL') playBonusSound();
-    
-    if (newCombo > 0 && newCombo % 10 === 0) {
-      playComboMilestoneSound();
+    // Play sound logic
+    if (circle.type !== 'NORMAL') {
+      playBonusSound();
+    } else {
+      // Regular tap sound with dynamic frequency
+      const now = Date.now();
+      const currentScore = scoreRef.current;
+      const isMilestone = currentScore % 10 === 0;
+      
+      if (isMilestone) playComboMilestoneSound();
+
+      // Determine waveform and volume based on difficulty
+      const waveform = WAVEFORMS[difficulty];
+      const tapVolume = difficulty === 'HARD' ? 0.05 : 0.1;
+      const tapDuration = 0.15;
+
+      const freqBoost = Math.min(newCombo * 10, 200);
+      const baseFreq = COLOR_FREQ_BASE[circle.color] || 440;
+      
+      const jitterFactor = 0.95 + (Math.random() * 0.1);
+      const finalFreq = (baseFreq + freqBoost) * jitterFactor;
+
+      if (soundSettings.tap) {
+        playSound(finalFreq, waveform, tapDuration, tapVolume, true);
+      }
     }
 
-    // Determine waveform and volume based on difficulty
-    const waveform = WAVEFORMS[difficulty];
-    const tapVolume = difficulty === 'HARD' ? 0.05 : 0.1; // Square waves are louder, so lower volume
-    const tapDuration = circle.type !== 'NORMAL' ? 0.3 : (difficulty === 'HARD' ? 0.08 : 0.15);
-
-    const freqBoost = circle.type === 'BONUS_POINTS' ? 400 : circle.type === 'BONUS_TIME' ? 200 : Math.min(newCombo * 10, 200);
-    const baseFreq = COLOR_FREQ_BASE[circle.color] || 440;
-    
-    // Add ±5% frequency jitter for character
-    const jitterFactor = 0.95 + (Math.random() * 0.1);
-    const finalFreq = (baseFreq + freqBoost) * jitterFactor;
-
-    playSound(finalFreq, waveform, tapDuration, tapVolume, true);
-
     // Create effect
-    let word = isBonus ? FEEDBACK_WORDS[Math.floor(Math.random() * FEEDBACK_WORDS.length)] : (newCombo > 5 ? `${newCombo}x COMBO!` : "+1");
-    if (circle.type === 'BONUS_POINTS') word = "+10 BONUS!";
+    const currentScore = scoreRef.current;
+    const isBonus = currentScore % 5 === 0 || circle.type !== 'NORMAL';
+    const pointsGained = (circle.type === 'BONUS_POINTS' ? 10 : 1) * multiplier;
+    let word = isBonus 
+      ? FEEDBACK_WORDS[Math.floor(Math.random() * FEEDBACK_WORDS.length)] 
+      : (newCombo > 5 ? `${newCombo}x COMBO!` : `+${pointsGained}`);
+    
+    if (circle.type === 'BONUS_POINTS') word = `+${pointsGained} BONUS!`;
     if (circle.type === 'BONUS_TIME') word = "+5s TIME!";
     
-    const particleCount = circle.type !== 'NORMAL' ? 30 : 10 + Math.min(newCombo * 2, 20);
+    const particleCount = circle.type !== 'NORMAL' ? 50 : 10 + Math.min(newCombo * 2, 20);
     const particles: Particle[] = Array.from({ length: particleCount }).map((_, i) => {
       const angle = (Math.random() * 360) * (Math.PI / 180);
-      const dist = 30 + Math.random() * (40 + newCombo * 5);
+      const isBonus = circle.type !== 'NORMAL';
+      const dist = (isBonus ? 50 : 30) + Math.random() * (isBonus ? 80 : (40 + newCombo * 5));
       return {
         id: i,
         tx: Math.cos(angle) * dist,
         ty: Math.sin(angle) * dist,
-        size: 2 + Math.random() * 4
+        size: (isBonus ? 4 : 2) + Math.random() * (isBonus ? 6 : 4)
       };
     });
 
@@ -632,7 +830,8 @@ export default function App() {
       text: word,
       color: circle.color,
       particles,
-      isKeyboard
+      isKeyboard,
+      type: circle.type
     };
     setEffects(prev => [...prev, newEffect]);
     setTimeout(() => {
@@ -656,6 +855,7 @@ export default function App() {
       const targetCircle = circles.find(c => c.letter === key);
       
       if (targetCircle) {
+        playKeyboardTapSound();
         handleTap(targetCircle, true);
         setIsKeyboardHit(true);
         setLastKey(key);
@@ -675,9 +875,114 @@ export default function App() {
 
   return (
     <div 
-      className={`min-h-screen ${THEMES[theme].bg} text-white font-sans flex flex-col items-center p-4 overflow-x-hidden select-none transition-colors duration-500`}
+      className={`min-h-screen ${THEMES[theme].bg} text-white font-sans flex flex-col items-center p-4 overflow-x-hidden select-none transition-colors duration-500 relative`}
       onClick={() => isGameRunning && !isPaused && playMissSound()}
     >
+      {/* Dynamic Reactive Background Layer */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 opacity-40">
+        {/* Animated Radial Gradients */}
+        <motion.div 
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.1, 0.3, 0.1],
+          }}
+          transition={{
+            duration: difficulty === 'HARD' ? 3 : 5,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] rounded-full blur-[120px]"
+          style={{ backgroundColor: THEMES[theme].primary }}
+        />
+        <motion.div 
+          animate={{
+            scale: [1.2, 1, 1.2],
+            opacity: [0.1, 0.2, 0.1],
+          }}
+          transition={{
+            duration: difficulty === 'HARD' ? 4 : 7,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] rounded-full blur-[120px]"
+          style={{ backgroundColor: THEMES[theme].secondary }}
+        />
+
+        {/* Reactive Grid Lines */}
+        <div 
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `linear-gradient(${THEMES[theme].primary}10 1px, transparent 1px), linear-gradient(90deg, ${THEMES[theme].primary}10 1px, transparent 1px)`,
+            backgroundSize: `${80 / spawnRateMultiplier}px ${80 / spawnRateMultiplier}px`,
+            transform: `perspective(1000px) rotateX(65deg) translateY(${(score * 2) % (80 / spawnRateMultiplier)}px)`,
+            transition: "transform 0.4s ease-out, background-size 0.8s ease-in-out"
+          }}
+        />
+
+        {/* Floating Geometric Elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          {[...Array(8)].map((_, i) => (
+            <motion.div
+              key={`geo-${i}`}
+              className="absolute pointer-events-none"
+              style={{
+                left: `${(i * 15 + 10) % 100}%`,
+                top: `${(i * 25 + 5) % 100}%`,
+                opacity: 0.15,
+              }}
+              animate={{
+                y: [0, -30, 0],
+                x: [0, 20, 0],
+                rotate: [0, 180, 360],
+                scale: isGameRunning ? [1, 1.2, 1] : 1
+              }}
+              transition={{
+                duration: 20 + i * 5,
+                repeat: Infinity,
+                ease: "linear",
+                scale: {
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }
+              }}
+            >
+              <svg width="120" height="120" viewBox="0 0 100 100" fill="none">
+                {i % 3 === 0 ? (
+                  <path d="M50 10L85 80H15L50 10Z" stroke={THEMES[theme].primary} strokeWidth="1" strokeDasharray="4 4" />
+                ) : i % 3 === 1 ? (
+                  <circle cx="50" cy="50" r="35" stroke={THEMES[theme].secondary} strokeWidth="1" strokeDasharray="2 6" />
+                ) : (
+                  <rect x="20" y="20" width="60" height="60" stroke={THEMES[theme].primary} strokeWidth="0.8" transform={`rotate(${i * 45} 50 50)`} />
+                )}
+              </svg>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Dynamic Scanlines */}
+        <div 
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 2px, ${THEMES[theme].primary} 3px)`,
+            backgroundSize: "100% 4px"
+          }}
+        />
+
+        {/* Ghost Circles that react to score */}
+        <AnimatePresence>
+          {score > 0 && score % 10 === 0 && (
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 4, opacity: 0.1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.5 }}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full border-2"
+              style={{ borderColor: THEMES[theme].primary }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
       <AnimatePresence>
         {showIntro && (
           <motion.div
@@ -770,6 +1075,44 @@ export default function App() {
                   >
                     <Settings size={14} /> Global Configuration
                   </motion.button>
+
+                  {!isLeaderboardLoading && leaderboard.length > 0 && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 1.2 }}
+                      className="mt-12 w-full max-w-xs bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[2rem] p-6 space-y-4 shadow-2xl"
+                    >
+                      <h3 className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] text-center flex items-center justify-center gap-2">
+                        <Trophy size={12} className="text-amber-500 fill-current" /> Global Hall of Fame
+                      </h3>
+                      <div className="space-y-3">
+                        {leaderboard.map((entry, idx) => (
+                          <div key={entry.id || idx} className="flex items-center justify-between group">
+                            <div className="flex items-center gap-3">
+                              <span className={`text-[10px] font-mono ${idx === 0 ? 'text-amber-500' : 'text-slate-600'}`}>
+                                {idx === 0 ? '🏆' : `0${idx + 1}`}
+                              </span>
+                              <span className="text-xs font-black text-slate-300 truncate max-w-[120px] uppercase tracking-tighter italic">
+                                {entry.playerName}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[8px] font-black uppercase tracking-tighter ${
+                                entry.difficulty === 'HARD' ? 'text-rose-500' : 
+                                entry.difficulty === 'MEDIUM' ? 'text-sky-500' : 'text-emerald-500'
+                              }`}>
+                                {entry.difficulty}
+                              </span>
+                              <span className="text-sm font-mono font-bold text-white group-hover:scale-110 transition-transform drop-shadow-[0_0_10px_rgba(56,189,248,0.3)]">
+                                {entry.score}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
               ) : (
                 <motion.div
@@ -791,6 +1134,28 @@ export default function App() {
                   </div>
 
                   <div className="bg-slate-900/50 p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] border border-slate-800 backdrop-blur-md shadow-3xl space-y-6 sm:space-y-10">
+                    <div className="space-y-2 sm:space-y-4">
+                      <p className="text-left text-[8px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest ml-1 flex items-center gap-2">
+                        <User size={10} className="text-amber-400" /> Agent Identity
+                      </p>
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          maxLength={20}
+                          value={playerName}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
+                            setPlayerName(val);
+                          }}
+                          className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 sm:py-4 px-5 text-white font-black uppercase tracking-widest text-[10px] sm:text-xs focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
+                          placeholder="ASSIGN IDENTIFIER..."
+                        />
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                          <Check size={14} className={playerName.length >= 2 ? "text-emerald-500" : "text-slate-800"} />
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="space-y-2 sm:space-y-4">
                       <p className="text-left text-[8px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest ml-1 flex items-center gap-2">
                         <Zap size={10} className="text-sky-400" /> Complexity Level
@@ -912,29 +1277,62 @@ export default function App() {
                 <motion.div
                   key={combo}
                   initial={{ scale: 0.8, opacity: 0, y: 5 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  animate={{ 
+                    scale: combo > 50 ? [1, 1.3, 1] : 1, 
+                    opacity: 1, 
+                    y: 0,
+                    filter: combo > 25 ? `drop-shadow(0 0 8px ${THEMES[theme].primary})` : 'none'
+                  }}
                   exit={{ scale: 1.2, opacity: 0, y: -15 }}
                   transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 10 }}
                   className="absolute -top-7 sm:top-8 left-1/2 -translate-x-1/2 whitespace-nowrap"
                 >
-                  <div className="bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded-full backdrop-blur-sm shadow-[0_0_15px_rgba(56,189,248,0.3)]">
-                    <span className="text-[8px] sm:text-[10px] font-black text-sky-400 tracking-tighter uppercase italic">
-                      {combo}x <span className="text-[6px] sm:text-[8px]">Combo!</span>
+                  <div className={`px-2 py-0.5 rounded-full border backdrop-blur-sm transition-colors duration-300 ${
+                    combo > 50 ? 'bg-rose-500/20 border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.4)]' :
+                    combo > 20 ? 'bg-amber-500/20 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.3)]' :
+                    'bg-sky-500/10 border-sky-500/30 shadow-[0_0_10px_rgba(56,189,248,0.2)]'
+                  }`}>
+                    <span className={`text-[8px] sm:text-[10px] font-black tracking-tighter uppercase italic transition-colors ${
+                      combo > 50 ? 'text-rose-400' : combo > 20 ? 'text-amber-400' : 'text-sky-400'
+                    }`}>
+                      {combo}x <span className="text-[6px] sm:text-[8px]">{combo > 50 ? 'UNSTOPPABLE!' : combo > 20 ? 'STREAK!' : 'Combo!'}</span>
                     </span>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold">Score</span>
-            <span className="text-xl sm:text-2xl font-mono font-bold transition-colors duration-500" style={{ color: THEMES[theme].primary }}>{score}</span>
+            <motion.span 
+              animate={{ 
+                scale: [1, combo > 10 ? 1.1 : 1.05, 1],
+                textShadow: combo > 30 ? `0 0 15px ${THEMES[theme].primary}` : "none"
+              }}
+              key={score}
+              transition={{ duration: 0.15 }}
+              className="text-xl sm:text-2xl font-mono font-bold transition-colors duration-500" 
+              style={{ color: THEMES[theme].primary }}
+            >
+              {score}
+            </motion.span>
           </div>
-          <div className="flex flex-col items-center border-x border-slate-800">
+          <div className="flex flex-col items-center border-x border-slate-800 px-2 sm:px-4">
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
               <Timer size={8} className="sm:w-[10px]" /> Time
             </span>
-            <span className={`text-xl sm:text-2xl font-mono font-bold ${timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-emerald-400'}`}>
+            <motion.span 
+              animate={{ 
+                scale: timeLeft <= 5 ? [1, 1.15, 1] : 1,
+                color: timeLeft <= 5 ? '#f43f5e' : (timeLeft <= 10 ? '#fbbf24' : '#10b981')
+              }}
+              transition={{ 
+                repeat: timeLeft <= 5 ? Infinity : 0, 
+                duration: timeLeft <= 5 ? 0.4 : 1,
+                ease: "easeInOut"
+              }}
+              className="text-xl sm:text-2xl font-mono font-bold"
+            >
               {timeLeft}s
-            </span>
+            </motion.span>
           </div>
           <div className="flex flex-col items-center group relative min-w-[60px] sm:min-w-[80px]">
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
@@ -1067,11 +1465,13 @@ export default function App() {
           if (isGameRunning && !isPaused) playMissSound();
         }}
         className={`relative w-full max-w-2xl h-[55vh] md:h-[60vh] lg:h-[65vh] max-h-[800px] bg-slate-900 border-2 rounded-3xl overflow-hidden mt-1 sm:mt-2 shadow-inner transition-all duration-75 ${
-          isKeyboardHit 
-            ? 'border-sky-400 shadow-[0_0_30px_rgba(56,189,248,0.4)] scale-[1.002]' 
-            : isMissed 
-              ? 'border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.3)]' 
-              : 'border-slate-800 shadow-none'
+          isBonusHit
+            ? 'border-amber-400 shadow-[0_0_50px_rgba(251,191,36,0.5)] scale-[1.01]'
+            : isKeyboardHit 
+              ? 'border-sky-400 shadow-[0_0_30px_rgba(56,189,248,0.4)] scale-[1.002]' 
+              : isMissed 
+                ? 'border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.3)]' 
+                : 'border-slate-800 shadow-none'
         }`}
       >
         {/* Progress Bar Timer */}
@@ -1085,6 +1485,24 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* Difficulty Scale-up Notification */}
+        <AnimatePresence>
+          {difficultyMessage && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.5, y: 50 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 1.5, y: -50 }}
+              className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none px-4"
+            >
+              <div className="bg-white/10 backdrop-blur-md border-2 border-white/20 px-8 py-4 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+                <h2 className="text-2xl sm:text-4xl font-black text-white italic tracking-tighter uppercase text-center drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
+                  {difficultyMessage}
+                </h2>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {isPaused && (
@@ -1208,6 +1626,67 @@ export default function App() {
                 </div>
 
                 <div className="space-y-6">
+                  {/* Agent Identity */}
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <User size={12} className="text-amber-400" /> Agent Identity
+                    </p>
+                    {user ? (
+                      <div className="flex items-center gap-3 bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                        <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-white/10" referrerPolicy="no-referrer" />
+                        <div>
+                          <p className="text-[10px] text-white font-black uppercase tracking-widest">{user.displayName}</p>
+                          <button onClick={() => auth.signOut()} className="text-[8px] text-slate-500 hover:text-white uppercase font-bold">Logout</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={handleSignIn}
+                        className="w-full bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
+                      >
+                        <Zap size={14} className="fill-current" /> Sign in with Google
+                      </button>
+                    )}
+                    <input 
+                      type="text" 
+                      maxLength={20}
+                      value={playerName}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
+                        setPlayerName(val);
+                      }}
+                      className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 px-4 text-white font-black uppercase tracking-widest text-[10px] focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
+                      placeholder="SET PLAYER NAME..."
+                    />
+                  </div>
+
+                  {/* Difficulty Selection */}
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <Zap size={12} className="text-sky-400" /> Game Difficulty
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((level) => (
+                        <button
+                          key={level}
+                          onClick={() => {
+                            setDifficulty(level);
+                            playSound(440 + (level === 'HARD' ? 200 : level === 'MEDIUM' ? 100 : 0), 'sine', 0.1, 0.05);
+                          }}
+                          disabled={isGameRunning}
+                          className={`py-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest ${
+                            difficulty === level 
+                              ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} border-transparent text-white shadow-lg` 
+                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                          } ${isGameRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {DIFFICULTY_SETTINGS[level].label}
+                          <span className="opacity-60 text-[6px]">{DIFFICULTY_SETTINGS[level].multiplier}x Points</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Volume Control */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
@@ -1233,6 +1712,90 @@ export default function App() {
                         className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                       />
                     </div>
+                    
+                    {/* Individual Sound Toggles */}
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {[
+                        { id: 'tap', label: 'Taps', icon: <Star size={10} /> },
+                        { id: 'bonus', label: 'Bonuses', icon: <Zap size={10} /> },
+                        { id: 'miss', label: 'Misses', icon: <VolumeX size={10} /> },
+                        { id: 'combo', label: 'Streaks', icon: <Trophy size={10} /> }
+                      ].map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            const newSettings = { ...soundSettings, [s.id]: !soundSettings[s.id as keyof typeof soundSettings] };
+                            setSoundSettings(newSettings);
+                            if (newSettings[s.id as keyof typeof soundSettings]) {
+                              playSound(s.id === 'miss' ? 60 : 440, 'sine', 0.1, 0.05);
+                            }
+                          }}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-[8px] font-black uppercase tracking-widest ${
+                            soundSettings[s.id as keyof typeof soundSettings]
+                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                              : 'bg-slate-950 border-slate-800 text-slate-600'
+                          }`}
+                        >
+                          {s.icon}
+                          {s.label}
+                          {soundSettings[s.id as keyof typeof soundSettings] && <Check size={8} className="ml-auto" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Tap Sensitivity */}
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                        <Zap size={12} className="text-emerald-400" /> Tap Sensitivity
+                      </p>
+                      <span className="text-[10px] font-mono text-emerald-500">{Math.round((sensitivity - 0.5) * 50)}%</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input 
+                        type="range" 
+                        min="0.8" 
+                        max="2.5" 
+                        step="0.1" 
+                        value={sensitivity} 
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setSensitivity(val);
+                        }}
+                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-600 font-bold uppercase tracking-wider">
+                      Higher sensitivity increases the hit area for circles.
+                    </p>
+                  </div>
+
+                  {/* Circle Spawn Rate */}
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                        <Activity size={12} className="text-rose-400" /> Spawn Rate
+                      </p>
+                      <span className="text-[10px] font-mono text-rose-500">{spawnRateMultiplier.toFixed(1)}x</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input 
+                        type="range" 
+                        min="0.5" 
+                        max="2.5" 
+                        step="0.1" 
+                        value={spawnRateMultiplier} 
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setSpawnRateMultiplier(val);
+                        }}
+                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-600 font-bold uppercase tracking-wider">
+                      Adjust the frequency of circle spawns. Overrides baseline difficulty speed.
+                    </p>
                   </div>
 
                   {/* Device Sync */}
@@ -1280,6 +1843,24 @@ export default function App() {
                         Mobile (Touch)
                       </button>
                     </div>
+                    
+                    {!isMobileMode && (
+                      <div className="flex items-center justify-between bg-slate-950/50 p-3 rounded-2xl border border-slate-800/50">
+                        <div className="flex items-center gap-2">
+                          <Info size={12} className="text-sky-400" />
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Show Keyboard Hints</p>
+                        </div>
+                        <button 
+                          onClick={() => setShowKeyHints(!showKeyHints)}
+                          className={`w-10 h-5 rounded-full relative transition-colors ${showKeyHints ? 'bg-sky-500' : 'bg-slate-800'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: showKeyHints ? 22 : 2 }}
+                            className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
+                          />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Visual Interface */}
@@ -1346,34 +1927,128 @@ export default function App() {
 
         <AnimatePresence>
           {!isMobileMode && isGameRunning && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/80 px-3 py-1 rounded-full border border-sky-500/30 text-[10px] font-black text-sky-400 uppercase tracking-widest animate-pulse backdrop-blur-sm z-10">
-              <Zap size={10} className="fill-current" /> Keyboard Control Active
+            <div className="absolute top-4 left-4 flex flex-col gap-1.5 z-10">
+              <div className="flex items-center gap-1.5 bg-slate-950/80 px-3 py-1 rounded-full border border-sky-500/30 text-[10px] font-black text-sky-400 uppercase tracking-widest animate-pulse backdrop-blur-sm">
+                <Zap size={10} className="fill-current" /> Keyboard Control Active
+              </div>
+            </div>
+          )}
+
+          {isGameRunning && (
+            <div className="absolute top-4 right-6 flex flex-col items-end pointer-events-none z-30">
+              <AnimatePresence mode="wait">
+                {combo > 1 && (
+                  <motion.div
+                    key="combo-badge"
+                    initial={{ scale: 0, x: 20, rotate: 10, opacity: 0 }}
+                    animate={{ 
+                      scale: 1 + Math.min(combo * 0.01, 0.4), 
+                      x: 0, 
+                      rotate: 0,
+                      opacity: 1
+                    }}
+                    exit={{ scale: 0.5, x: 20, opacity: 0 }}
+                    className="flex flex-col items-end group"
+                  >
+                    <div className="relative">
+                      <motion.div 
+                        key={combo}
+                        initial={{ scale: 1.5, filter: 'brightness(2)' }}
+                        animate={{ 
+                          scale: 1, 
+                          filter: 'brightness(1)',
+                          y: combo % 10 === 0 ? [0, -20, 0] : 0
+                        }}
+                        transition={{ 
+                          type: "spring", 
+                          stiffness: 400, 
+                          damping: 10,
+                          y: { duration: 0.4 }
+                        }}
+                        className={`text-5xl sm:text-7xl font-black italic tracking-tighter select-none transition-colors duration-300 ${
+                          combo >= 50 ? 'text-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.6)]' : 
+                          combo >= 25 ? 'text-amber-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)]' : 
+                          'text-sky-400 drop-shadow-[0_0_15px_rgba(56,189,248,0.4)]'
+                        }`}
+                      >
+                        {combo}
+                        <span className="text-2xl sm:text-3xl ml-1 not-italic">×</span>
+                      </motion.div>
+                      
+                      {/* Milestone Flash */}
+                      {combo % 10 === 0 && (
+                        <motion.div 
+                          initial={{ scale: 0.8, opacity: 1 }}
+                          animate={{ scale: 2, opacity: 0 }}
+                          className="absolute inset-0 bg-white/30 blur-xl rounded-full"
+                        />
+                      )}
+                    </div>
+                    
+                    <motion.div 
+                      animate={{ 
+                        opacity: combo >= 10 ? 1 : 0.6,
+                        letterSpacing: combo >= 25 ? '0.5em' : '0.3em'
+                      }}
+                      className={`text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em] -mt-2 transition-all ${
+                        combo >= 50 ? 'text-rose-400' : combo >= 25 ? 'text-amber-400' : 'text-slate-500'
+                      }`}
+                    >
+                      {combo >= 50 ? 'UNSTOPPABLE!!' : combo >= 25 ? 'GODLIKE STREAK' : 'STREAK COMBO'}
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
           {circles.map((circle) => (
-            <motion.div
+            <div
               key={circle.id}
-              initial={{ scale: 0.5, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
+              className="absolute z-20 flex items-center justify-center"
               onClick={(e) => handleTap(circle, false, e)}
-              className={`absolute cursor-pointer rounded-full shadow-lg flex items-center justify-center ${
-                circle.type === 'BONUS_POINTS' ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-slate-900 border-4 border-amber-300' : 
-                circle.type === 'BONUS_TIME' ? 'ring-4 ring-sky-400 ring-offset-4 ring-offset-slate-900 border-4 border-sky-300' : ''
-              }`}
               style={{
-                left: circle.x,
-                top: circle.y,
-                width: circle.size,
-                height: circle.size,
-                backgroundColor: circle.color,
-                boxShadow: circle.type !== 'NORMAL' ? `0 0 40px ${circle.color}88` : `0 0 20px ${circle.color}44`
+                left: circle.x + circle.size / 2,
+                top: circle.y + circle.size / 2,
+                width: circle.size * sensitivity,
+                height: circle.size * sensitivity,
+                transform: 'translate(-50%, -50%)',
+                cursor: 'pointer'
               }}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
             >
-              <div className="relative flex items-center justify-center w-full h-full">
+              <motion.div
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0, opacity: 0 }}
+                className={`w-full h-full rounded-full shadow-lg flex items-center justify-center ${
+                  circle.type === 'BONUS_POINTS' ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-slate-900 border-4 border-amber-300' : 
+                  circle.type === 'BONUS_TIME' ? 'ring-4 ring-sky-400 ring-offset-4 ring-offset-slate-900 border-4 border-sky-300' : ''
+                }`}
+                style={{
+                  width: circle.size,
+                  height: circle.size,
+                  backgroundColor: circle.color,
+                  boxShadow: circle.type !== 'NORMAL' ? `0 0 40px ${circle.color}ee` : `0 0 20px ${circle.color}44`
+                }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+              {circle.type !== 'NORMAL' && (
+                <motion.div
+                  className="absolute inset-0 rounded-full blur-[20px]"
+                  style={{ backgroundColor: circle.color }}
+                  animate={{
+                    scale: [1, 1.4, 1],
+                    opacity: [0.2, 0.5, 0.2]
+                  }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                />
+              )}
+              <div className="relative flex items-center justify-center w-full h-full z-10">
                 {circle.type === 'BONUS_POINTS' && (
                   <Star 
                     size={circle.size * 0.5} 
@@ -1390,11 +2065,22 @@ export default function App() {
                   className={`text-white font-black select-none drop-shadow-md pb-0.5 ${circle.type !== 'NORMAL' ? 'opacity-40 scale-75' : ''}`}
                   style={{ fontSize: circle.size * 0.4 }}
                 >
-                  {!isMobileMode && circle.letter}
+                  {!isMobileMode && showKeyHints && circle.letter}
                 </span>
+                
+                {!isMobileMode && showKeyHints && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute -bottom-4 bg-black/60 backdrop-blur-sm border border-white/20 rounded px-1.5 py-0.5 shadow-xl"
+                  >
+                    <span className="text-[8px] font-mono font-bold text-white tracking-widest leading-none">KEY:{circle.letter}</span>
+                  </motion.div>
+                )}
               </div>
             </motion.div>
-          ))}
+          </div>
+        ))}
         </AnimatePresence>
 
         {effects.map((effect) => (
@@ -1425,7 +2111,7 @@ export default function App() {
                   width: p.size,
                   height: p.size,
                   backgroundColor: effect.color,
-                  boxShadow: `0 0 10px ${effect.color}`
+                  boxShadow: effect.type !== 'NORMAL' ? `0 0 15px ${effect.color}, 0 0 30px ${effect.color}` : `0 0 10px ${effect.color}`
                 }}
               />
             ))}
@@ -1495,87 +2181,147 @@ export default function App() {
         </AnimatePresence>
 
         {!isGameRunning && preGameCountdown === null && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-[2px]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
             {timeLeft === 0 && (
               <motion.div 
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="text-center p-8 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md z-[100] px-6"
               >
-                <h2 className="text-4xl font-black text-rose-500 mb-2 uppercase italic tracking-tighter">Game Over</h2>
-                <div className="space-y-1 mb-6">
-                  <p className="text-slate-400">Final Score: <span className="text-white font-bold text-xl">{score}</span></p>
-                  <div className="flex justify-center gap-4 text-[10px] uppercase tracking-widest font-black">
-                    <p className="text-slate-500">
-                      Best: <span className="text-amber-400">{highScore}</span>
-                    </p>
-                    <p className="text-slate-500">
-                      Combo: <span className="text-sky-400">{maxCombo}</span>
-                    </p>
+                <motion.div 
+                  initial={{ scale: 0.8, y: 20, opacity: 0 }}
+                  animate={{ scale: 1, y: 0, opacity: 1 }}
+                  transition={{ type: "spring", damping: 20, stiffness: 300, delay: 0.1 }}
+                  className="w-full max-w-md text-center"
+                >
+                  {/* Header Section */}
+                  <motion.div
+                    initial={{ y: -20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className="mb-8"
+                  >
+                    <Trophy className="mx-auto text-amber-400 w-16 h-16 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)] mb-4" />
+                    <h2 className="text-6xl font-black text-rose-500 uppercase italic tracking-tighter drop-shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+                      Game Over
+                    </h2>
+                    <p className="text-slate-500 uppercase tracking-[0.3em] font-black text-xs mt-1">Session Complete</p>
+                  </motion.div>
+
+                  {/* Score Summary Card */}
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 mb-8 relative overflow-hidden backdrop-blur-sm shadow-2xl">
+                    {score >= highScore && score > 0 && (
+                      <motion.div 
+                        initial={{ scale: 0, rotate: -20 }}
+                        animate={{ scale: 1, rotate: -15 }}
+                        className="absolute -top-2 -right-4 bg-amber-400 text-slate-950 text-[10px] uppercase font-black px-6 py-2 rounded-full shadow-lg z-10 border-2 border-slate-900"
+                      >
+                        New Personal Best!
+                      </motion.div>
+                    )}
+                    
+                    <div className="flex flex-col gap-6">
+                      <div>
+                        <p className="text-slate-400 uppercase tracking-widest font-black text-[10px] mb-1">Final Score</p>
+                        <motion.p 
+                          initial={{ scale: 0.5 }}
+                          animate={{ scale: 1 }}
+                          className="text-7xl font-black text-white italic drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                        >
+                          {score}
+                        </motion.p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-6 mt-2">
+                        <div className="text-center">
+                            <p className="text-slate-500 uppercase tracking-widest font-black text-[9px] mb-1">High Score</p>
+                            <p className="text-amber-400 font-black text-xl">{highScore}</p>
+                        </div>
+                        <div className="text-center border-l border-slate-800">
+                            <p className="text-slate-500 uppercase tracking-widest font-black text-[9px] mb-1">Best Combo</p>
+                            <motion.p 
+                              initial={{ scale: 0.5, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
+                              className="text-sky-400 font-black text-xl"
+                            >
+                              {maxCombo}x
+                            </motion.p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  {score >= highScore && score > 0 && (
-                    <motion.div 
-                      initial={{ scale: 0.5, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="bg-amber-500/20 text-amber-500 text-[10px] uppercase font-black px-3 py-1 rounded-full mt-3 inline-block border border-amber-500/30"
-                    >
-                      🏆 New Personal Best
-                    </motion.div>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-3 min-w-[240px]">
-                  <button 
-                    onClick={startGame}
-                    className="text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                    style={{ backgroundColor: THEMES[theme].primary }}
-                  >
-                    Quick Retry <RotateCcw size={16} />
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowIntro(true);
-                      setIntroStep('TITLE');
-                      setScore(0);
-                      setCombo(0);
-                      setMaxCombo(0);
-                    }}
-                    className="bg-slate-800 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700 active:scale-95"
-                  >
-                    Main Menu
-                  </button>
-                  <button 
-                    onClick={async () => {
-                      const text = `I just scored ${score} in Tap Game Pro! Best: ${highScore}. Can you beat me?`;
-                      if (navigator.share) {
-                        try {
-                          await navigator.share({
-                            title: 'Tap Game Pro Score',
-                            text: text,
-                            url: window.location.href
-                          });
-                        } catch (err) {
-                          console.log('Error sharing:', err);
-                        }
-                      } else {
-                        // Fallback: Copy to clipboard
-                        navigator.clipboard.writeText(text);
-                        alert("Score copied to clipboard!");
-                      }
-                    }}
-                    className="bg-white text-slate-950 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-100 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    Share Result <Zap size={14} className="fill-current" />
-                  </button>
-                  
-                  {highScore > 0 && (
-                    <button 
-                      onClick={resetHighScore}
-                      className="text-[10px] text-slate-500 hover:text-rose-500 transition-colors uppercase font-bold tracking-widest mt-2"
-                    >
-                      Reset High Score
-                    </button>
-                  )}
-                </div>
+
+                  {/* Actions */}
+                  <div className="grid grid-cols-1 gap-4 w-full px-4">
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={startGame}
+                        className="w-full text-white px-8 py-5 rounded-2xl font-black uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden"
+                        style={{ backgroundColor: THEMES[theme].primary }}
+                      >
+                        <div className="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
+                        <RotateCcw size={20} className="group-hover:rotate-180 transition-transform duration-500" />
+                        <span>Play Again</span>
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          onClick={() => {
+                            setShowIntro(true);
+                            setIntroStep('TITLE');
+                            setScore(0);
+                            setCombo(0);
+                            setMaxCombo(0);
+                          }}
+                          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest transition-all border border-slate-700 active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          Menu
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            const text = `I just scored ${score} in Tap Game Pro! Best: ${highScore}. Can you beat me?`;
+                            if (navigator.share) {
+                              try {
+                                await navigator.share({
+                                  title: 'Tap Game Pro Score',
+                                  text: text,
+                                  url: window.location.href
+                                });
+                              } catch (err) {
+                                console.log('Error sharing:', err);
+                              }
+                            } else {
+                              navigator.clipboard.writeText(text);
+                              alert("Score copied to clipboard!");
+                            }
+                          }}
+                          className="bg-white hover:bg-slate-100 text-slate-950 px-6 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          Share <Zap size={16} className="fill-current" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {!user && (
+                      <button 
+                        onClick={handleSignIn}
+                        className="mt-2 text-sky-400 text-[10px] font-black uppercase tracking-[0.1em] hover:text-sky-300 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <User size={12} /> Sign in to compete on leaderboard
+                      </button>
+                    )}
+
+                    {highScore > 0 && (
+                      <button 
+                        onClick={resetHighScore}
+                        className="text-[10px] text-slate-500 hover:text-rose-500 transition-colors uppercase font-bold tracking-widest mt-2"
+                      >
+                        Reset Statistics
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
               </motion.div>
             )}
             {score === 0 && timeLeft > 0 && (
