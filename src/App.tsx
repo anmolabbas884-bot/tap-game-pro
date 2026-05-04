@@ -991,6 +991,20 @@ export default function App() {
             transition={{ duration: 0.8, ease: "easeInOut" }}
             className="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6 text-center overflow-hidden"
           >
+            {/* Skip Intro Button */}
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1 }}
+              onClick={() => {
+                playSound(440, 'sine', 0.1, 0.05, true);
+                setShowIntro(false);
+              }}
+              className="absolute top-6 right-6 z-[110] flex items-center gap-2 px-5 py-2.5 bg-slate-900/50 hover:bg-slate-800 border border-white/5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-white transition-all group backdrop-blur-md"
+            >
+              Skip Intro
+            </motion.button>
+
             {/* Background elements for intro */}
             <div className="absolute inset-0 pointer-events-none opacity-20">
               {Array.from({ length: 20 }).map((_, i) => (
@@ -1036,10 +1050,10 @@ export default function App() {
                     <div className="bg-sky-500/10 p-8 sm:p-12 rounded-full border-4 border-sky-500/20 backdrop-blur-2xl relative z-10 mb-6 sm:mb-8 mx-auto w-fit">
                       <Zap size={60} className="sm:w-[120px] sm:h-[120px] text-sky-400 fill-current drop-shadow-[0_0_50px_rgba(56,189,248,0.6)]" />
                     </div>
-                    <h1 className="text-4xl sm:text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-2xl">
+                    <h1 className="text-3xl sm:text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-2xl">
                       TAP GAME <span style={{ color: THEMES[theme].primary }}>PRO</span>
                     </h1>
-                    <div className="mt-2 sm:mt-4 text-slate-500 font-bold uppercase tracking-[0.5em] sm:tracking-[1em] text-[8px] sm:text-[10px]">
+                    <div className="mt-2 sm:mt-4 text-slate-500 font-bold uppercase tracking-[0.3em] sm:tracking-[1em] text-[7px] sm:text-[10px]">
                       Elite Reflex Training
                     </div>
                     {highScore > 0 && (
@@ -1061,7 +1075,7 @@ export default function App() {
                       playSound(440, 'sine', 0.2, 0.05, true);
                       setIntroStep('SETUP');
                     }}
-                    className="group relative px-10 sm:px-16 py-4 sm:py-5 rounded-full bg-white text-slate-950 font-black text-lg sm:text-2xl uppercase italic tracking-tighter hover:bg-sky-400 hover:text-white transition-all shadow-[0_0_60px_rgba(255,255,255,0.1)] hover:shadow-sky-500/50 hover:scale-110 active:scale-95"
+                    className="group relative px-8 sm:px-16 py-3.5 sm:py-5 rounded-full bg-white text-slate-950 font-black text-base sm:text-2xl uppercase italic tracking-tighter hover:bg-sky-400 hover:text-white transition-all shadow-[0_0_60px_rgba(255,255,255,0.1)] hover:shadow-sky-500/50 hover:scale-110 active:scale-95"
                   >
                     Initialize Setup
                   </motion.button>
@@ -1081,7 +1095,7 @@ export default function App() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 1.2 }}
-                      className="mt-12 w-full max-w-xs bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[2rem] p-6 space-y-4 shadow-2xl"
+                      className="mt-8 sm:mt-12 w-full max-w-xs bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[2rem] p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-2xl"
                     >
                       <h3 className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] text-center flex items-center justify-center gap-2">
                         <Trophy size={12} className="text-amber-500 fill-current" /> Global Hall of Fame
@@ -1211,9 +1225,9 @@ export default function App() {
                         playStartSound();
                         setShowIntro(false);
                       }}
-                      className="group w-full py-4 sm:py-6 rounded-2xl sm:rounded-[2rem] bg-white text-slate-950 font-black text-lg sm:text-2xl italic tracking-tighter uppercase shadow-[0_20px_50px_rgba(255,255,255,0.1)] hover:shadow-emerald-500/60 hover:bg-emerald-400 hover:text-white transition-all flex items-center justify-center gap-2 sm:gap-3"
+                      className="group w-full py-3.5 sm:py-6 rounded-2xl sm:rounded-[2rem] bg-white text-slate-950 font-black text-base sm:text-2xl italic tracking-tighter uppercase shadow-[0_20px_50px_rgba(255,255,255,0.1)] hover:shadow-emerald-500/60 hover:bg-emerald-400 hover:text-white transition-all flex items-center justify-center gap-2 sm:gap-3"
                     >
-                      Lock In & Deploy <Play size={20} className="sm:w-6 sm:h-6 group-hover:translate-x-2 transition-transform" />
+                      Lock In & Deploy <Play size={18} className="sm:w-6 sm:h-6 group-hover:translate-x-2 transition-transform" />
                     </motion.button>
                   </div>
                   <p className="text-[10px] text-slate-600 uppercase tracking-[0.5em] font-medium">Built by <span className="text-slate-400">AI Studio Build</span></p>
@@ -1270,8 +1284,8 @@ export default function App() {
           </div>
         </div>
 
-        <div className="w-full grid grid-cols-3 gap-1 sm:gap-2 text-center bg-slate-900/50 p-2 sm:p-4 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">
-          <div className="flex flex-col items-center relative">
+        <div className="w-full grid grid-cols-2 xs:grid-cols-4 gap-1 sm:gap-2 text-center bg-slate-900/50 p-1.5 sm:p-4 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">
+          <div className="flex flex-col items-center relative py-1 xs:py-0">
             <AnimatePresence mode="popLayout">
               {combo > 1 && (
                 <motion.div
@@ -1285,7 +1299,7 @@ export default function App() {
                   }}
                   exit={{ scale: 1.2, opacity: 0, y: -15 }}
                   transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 10 }}
-                  className="absolute -top-7 sm:top-8 left-1/2 -translate-x-1/2 whitespace-nowrap"
+                  className="absolute -top-7 sm:top-8 left-1/2 -translate-x-1/2 whitespace-nowrap z-20"
                 >
                   <div className={`px-2 py-0.5 rounded-full border backdrop-blur-sm transition-colors duration-300 ${
                     combo > 50 ? 'bg-rose-500/20 border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.4)]' :
@@ -1295,7 +1309,7 @@ export default function App() {
                     <span className={`text-[8px] sm:text-[10px] font-black tracking-tighter uppercase italic transition-colors ${
                       combo > 50 ? 'text-rose-400' : combo > 20 ? 'text-amber-400' : 'text-sky-400'
                     }`}>
-                      {combo}x <span className="text-[6px] sm:text-[8px]">{combo > 50 ? 'UNSTOPPABLE!' : combo > 20 ? 'STREAK!' : 'Combo!'}</span>
+                      {combo}x <span className="text-[6px] sm:text-[8px]">{combo > 50 ? 'GIGA' : combo > 20 ? 'HOT' : 'HIT'}</span>
                     </span>
                   </div>
                 </motion.div>
@@ -1315,7 +1329,7 @@ export default function App() {
               {score}
             </motion.span>
           </div>
-          <div className="flex flex-col items-center border-x border-slate-800 px-2 sm:px-4">
+          <div className="flex flex-col items-center border-l xs:border-l border-slate-800 px-2 sm:px-4 py-1 xs:py-0">
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
               <Timer size={8} className="sm:w-[10px]" /> Time
             </span>
@@ -1334,9 +1348,22 @@ export default function App() {
               {timeLeft}s
             </motion.span>
           </div>
-          <div className="flex flex-col items-center group relative min-w-[60px] sm:min-w-[80px]">
+          <div className="flex flex-col items-center border-t xs:border-t-0 xs:border-l border-slate-800 px-2 sm:px-4 py-1 xs:py-0">
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
-              <Trophy size={8} className="sm:w-[10px]" /> High
+              <Activity size={8} className="sm:w-[10px]" /> Speed
+            </span>
+            <motion.span 
+              animate={{ 
+                scale: spawnRateMultiplier > 1.5 ? [1, 1.1, 1] : 1,
+              }}
+              className="text-xl sm:text-2xl font-mono font-bold text-rose-400"
+            >
+              {((1200 / speed) * spawnRateMultiplier).toFixed(1)}x
+            </motion.span>
+          </div>
+          <div className="flex flex-col items-center border-t border-l xs:border-t-0 xs:border-l border-slate-800 px-2 sm:px-4 py-1 xs:py-0">
+            <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
+              <Trophy size={8} className="sm:w-[10px]" /> Best
             </span>
             <div className="flex flex-col items-center">
               <span className="text-xl sm:text-2xl font-mono font-bold text-amber-400">{highScore}</span>
@@ -1347,39 +1374,39 @@ export default function App() {
         {!isGameRunning && (
           <div className="flex flex-col items-center gap-3 w-full">
             <div className="w-full flex flex-wrap justify-center gap-2">
-              <div className="flex bg-slate-900/80 p-1 rounded-full border border-slate-800 shadow-inner">
+              <div className="flex bg-slate-900/80 p-1.5 rounded-full border border-slate-800 shadow-inner">
                 <button
                   onClick={() => setIsMobileMode(false)}
-                  className={`px-3 sm:px-6 py-1 rounded-full text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1 sm:gap-2 ${
+                  className={`px-4 sm:px-6 py-1.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1 sm:gap-2 ${
                     !isMobileMode
                       ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <Zap size={8} className={!isMobileMode ? 'fill-current' : ''} />
+                  <Zap size={10} className={!isMobileMode ? 'fill-current' : ''} />
                   Keys
                 </button>
                 <button
                   onClick={() => setIsMobileMode(true)}
-                  className={`px-3 sm:px-6 py-1 rounded-full text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1 sm:gap-2 ${
+                  className={`px-4 sm:px-6 py-1.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1 sm:gap-2 ${
                     isMobileMode
                       ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <Zap size={8} className={isMobileMode ? 'fill-current' : ''} />
+                  <Zap size={10} className={isMobileMode ? 'fill-current' : ''} />
                   Touch
                 </button>
               </div>
 
-              <div className="flex gap-1 sm:gap-2 items-center bg-slate-900/40 p-1 rounded-full border border-slate-800/50">
+              <div className="flex gap-1.5 sm:gap-2 items-center bg-slate-900/40 p-1.5 rounded-full border border-slate-800/50">
                 {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((level) => (
                   <button
                     key={level}
                     onClick={() => setDifficulty(level)}
-                    className={`px-3 sm:px-4 py-1 rounded-full text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${
+                    className={`px-3.5 sm:px-4 py-1.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${
                       difficulty === level
-                        ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} text-white shadow-lg shadow-${DIFFICULTY_SETTINGS[level].color.split('-')[1]}-500/20`
+                        ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} text-white shadow-lg`
                         : 'text-slate-500 hover:text-slate-300'
                     }`}
                   >
@@ -1431,26 +1458,28 @@ export default function App() {
         </div>
 
         {isGameRunning && (
-          <div className="flex gap-3 mt-2 animate-in fade-in slide-in-from-top-2 duration-500">
+          <div className="flex gap-2 sm:gap-3 mt-2 animate-in fade-in slide-in-from-top-2 duration-500 w-full xs:w-auto px-4 xs:px-0">
             <button
               onClick={togglePause}
               id="pauseButton"
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl border font-black transition-all text-[10px] uppercase tracking-[0.2em] shadow-xl ${
+              className={`flex-1 xs:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-2.5 rounded-2xl border font-black transition-all text-[10px] uppercase tracking-[0.2em] shadow-xl min-h-[44px] ${
                 isPaused 
                   ? 'bg-emerald-500 border-transparent text-white animate-pulse' 
                   : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
               {isPaused ? <Play size={14} className="fill-current" /> : <div className="flex gap-1"><div className="w-1 h-3 bg-current rounded-full"/><div className="w-1 h-3 bg-current rounded-full"/></div>}
-              {isPaused ? 'Resume Game' : 'Pause Game'}
+              <span className="hidden xs:inline">{isPaused ? 'Resume Game' : 'Pause Game'}</span>
+              <span className="xs:hidden">{isPaused ? 'Resume' : 'Pause'}</span>
             </button>
             <button
               onClick={stopGameEarly}
               id="stopButton"
-              className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 font-black hover:bg-rose-500 hover:text-white transition-all text-[10px] uppercase tracking-[0.2em] shadow-xl"
+              className="flex-1 xs:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 font-black hover:bg-rose-500 hover:text-white transition-all text-[10px] uppercase tracking-[0.2em] shadow-xl min-h-[44px]"
             >
               <div className="w-3 h-3 bg-current rounded-sm" />
-              Stop Game
+              <span className="hidden xs:inline">Stop Game</span>
+              <span className="xs:hidden">Stop</span>
             </button>
           </div>
         )}
@@ -1464,7 +1493,7 @@ export default function App() {
           e.stopPropagation();
           if (isGameRunning && !isPaused) playMissSound();
         }}
-        className={`relative w-full max-w-2xl h-[55vh] md:h-[60vh] lg:h-[65vh] max-h-[800px] bg-slate-900 border-2 rounded-3xl overflow-hidden mt-1 sm:mt-2 shadow-inner transition-all duration-75 ${
+        className={`relative w-full max-w-2xl h-[55vh] md:h-[60vh] lg:h-[65vh] max-h-[800px] bg-slate-900 border-2 rounded-3xl overflow-hidden mt-1 sm:mt-2 shadow-inner transition-all duration-75 touch-none ${
           isBonusHit
             ? 'border-amber-400 shadow-[0_0_50px_rgba(251,191,36,0.5)] scale-[1.01]'
             : isKeyboardHit 
@@ -1610,7 +1639,7 @@ export default function App() {
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-slate-900 border border-slate-800 p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-8"
+                className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center mb-2">
@@ -2202,14 +2231,14 @@ export default function App() {
                     className="mb-8"
                   >
                     <Trophy className="mx-auto text-amber-400 w-16 h-16 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)] mb-4" />
-                    <h2 className="text-6xl font-black text-rose-500 uppercase italic tracking-tighter drop-shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+                    <h2 className="text-4xl sm:text-6xl font-black text-rose-500 uppercase italic tracking-tighter drop-shadow-[0_0_20px_rgba(244,63,94,0.3)]">
                       Game Over
                     </h2>
                     <p className="text-slate-500 uppercase tracking-[0.3em] font-black text-xs mt-1">Session Complete</p>
                   </motion.div>
 
                   {/* Score Summary Card */}
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 mb-8 relative overflow-hidden backdrop-blur-sm shadow-2xl">
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-6 sm:p-8 mb-8 relative overflow-hidden backdrop-blur-sm shadow-2xl">
                     {score >= highScore && score > 0 && (
                       <motion.div 
                         initial={{ scale: 0, rotate: -20 }}
@@ -2226,7 +2255,7 @@ export default function App() {
                         <motion.p 
                           initial={{ scale: 0.5 }}
                           animate={{ scale: 1 }}
-                          className="text-7xl font-black text-white italic drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                          className="text-6xl sm:text-7xl font-black text-white italic drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                         >
                           {score}
                         </motion.p>
@@ -2257,12 +2286,12 @@ export default function App() {
                     <div className="flex flex-col gap-3">
                       <button 
                         onClick={startGame}
-                        className="w-full text-white px-8 py-5 rounded-2xl font-black uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden"
+                        className="w-full text-white px-8 py-5 sm:py-6 rounded-[1.5rem] sm:rounded-2xl font-black uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden"
                         style={{ backgroundColor: THEMES[theme].primary }}
                       >
                         <div className="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
                         <RotateCcw size={20} className="group-hover:rotate-180 transition-transform duration-500" />
-                        <span>Play Again</span>
+                        <span className="text-sm sm:text-base">Play Again</span>
                       </button>
 
                       <div className="grid grid-cols-2 gap-3">
