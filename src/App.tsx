@@ -117,8 +117,8 @@ export default function App() {
     const savedDifficulty = localStorage.getItem("tapDifficulty") as Difficulty;
     return DIFFICULTY_SETTINGS[savedDifficulty || 'MEDIUM'].speed;
   });
-  const [spawnRateMultiplier, setSpawnRateMultiplier] = useState(() => {
-    const saved = localStorage.getItem("tapSpawnRateMultiplier");
+  const [gameSpeed, setGameSpeed] = useState(() => {
+    const saved = localStorage.getItem("tapGameSpeed");
     return saved ? parseFloat(saved) : 1.0;
   });
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -160,6 +160,7 @@ export default function App() {
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const nextCircleId = useRef(0);
   const nextEffectId = useRef(0);
+  const rafMovementRef = useRef<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update dimensions on resize
@@ -629,9 +630,9 @@ export default function App() {
     localStorage.setItem("tapSoundSettings", JSON.stringify(soundSettings));
     localStorage.setItem("tapSensitivity", sensitivity.toString());
     localStorage.setItem("tapPlayerName", playerName);
-    localStorage.setItem("tapSpawnRateMultiplier", spawnRateMultiplier.toString());
+    localStorage.setItem("tapGameSpeed", gameSpeed.toString());
     localStorage.setItem("tapShowKeyHints", showKeyHints.toString());
-  }, [difficulty, volume, theme, sessionDuration, isMobileMode, soundSettings, sensitivity, playerName, spawnRateMultiplier, showKeyHints]);
+  }, [difficulty, volume, theme, sessionDuration, isMobileMode, soundSettings, sensitivity, playerName, gameSpeed, showKeyHints]);
 
   const togglePause = () => {
     if (!isGameRunning) return;
@@ -714,13 +715,38 @@ export default function App() {
       if (!isPaused) {
         setCircles(prev => prev.filter(c => c.id !== newCircle.id));
       }
-    }, speed / spawnRateMultiplier);
+    }, speed / gameSpeed);
 
     // Schedule next spawn
     spawnTimerRef.current = setTimeout(() => {
       spawnCircle();
-    }, (speed / spawnRateMultiplier) * 0.8); // Slight overlap for continuity
-  }, [isGameRunning, isPaused, speed, dimensions, difficulty, spawnRateMultiplier]);
+    }, (speed / gameSpeed) * 0.8); // Slight overlap for continuity
+  }, [isGameRunning, isPaused, speed, dimensions, difficulty, gameSpeed]);
+
+  // Circle movement logic (falling)
+  useEffect(() => {
+    if (!isGameRunning || isPaused) return;
+
+    let lastTime = performance.now();
+    const moveStep = (time: number) => {
+      const deltaTime = time - lastTime;
+      lastTime = time;
+
+      if (deltaTime < 100) { // Limit huge jumps if tab was inactive
+        setCircles(prev => prev.map(circle => ({
+          ...circle,
+          y: circle.y + (0.15 * gameSpeed * (deltaTime / 16.67)) // Baseline speed scaled by deltaTime
+        })));
+      }
+
+      rafMovementRef.current = requestAnimationFrame(moveStep);
+    };
+
+    rafMovementRef.current = requestAnimationFrame(moveStep);
+    return () => {
+      if (rafMovementRef.current) cancelAnimationFrame(rafMovementRef.current);
+    };
+  }, [isGameRunning, isPaused, gameSpeed]);
 
   useEffect(() => {
     if (isGameRunning && !isPaused) {
@@ -913,8 +939,8 @@ export default function App() {
           className="absolute inset-0"
           style={{
             backgroundImage: `linear-gradient(${THEMES[theme].primary}10 1px, transparent 1px), linear-gradient(90deg, ${THEMES[theme].primary}10 1px, transparent 1px)`,
-            backgroundSize: `${80 / spawnRateMultiplier}px ${80 / spawnRateMultiplier}px`,
-            transform: `perspective(1000px) rotateX(65deg) translateY(${(score * 2) % (80 / spawnRateMultiplier)}px)`,
+            backgroundSize: `${80 / gameSpeed}px ${80 / gameSpeed}px`,
+            transform: `perspective(1000px) rotateX(65deg) translateY(${(score * 2) % (80 / gameSpeed)}px)`,
             transition: "transform 0.4s ease-out, background-size 0.8s ease-in-out"
           }}
         />
@@ -1354,11 +1380,11 @@ export default function App() {
             </span>
             <motion.span 
               animate={{ 
-                scale: spawnRateMultiplier > 1.5 ? [1, 1.1, 1] : 1,
+                scale: gameSpeed > 1.5 ? [1, 1.1, 1] : 1,
               }}
               className="text-xl sm:text-2xl font-mono font-bold text-rose-400"
             >
-              {((1200 / speed) * spawnRateMultiplier).toFixed(1)}x
+              {((1200 / speed) * gameSpeed).toFixed(1)}x
             </motion.span>
           </div>
           <div className="flex flex-col items-center border-t border-l xs:border-t-0 xs:border-l border-slate-800 px-2 sm:px-4 py-1 xs:py-0">
@@ -1639,39 +1665,39 @@ export default function App() {
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
+                className="bg-slate-900 border border-slate-800 p-5 sm:p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-6 sm:space-y-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter flex items-center gap-2">
+                <div className="flex justify-between items-center mb-1 sm:mb-2">
+                  <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tighter flex items-center gap-2">
                     <Settings className="text-sky-400" /> Settings
                   </h3>
                   <button 
                     onClick={() => setShowSettings(false)} 
-                    className="p-2 rounded-full hover:bg-slate-800 text-slate-500 hover:text-white transition-all"
+                    className="p-2 rounded-full hover:bg-slate-800 text-slate-500 hover:text-white transition-all scale-90 sm:scale-100"
                   >
                     <RotateCcw size={20} />
                   </button>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-5 sm:space-y-6">
                   {/* Agent Identity */}
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                  <div className="space-y-3 sm:space-y-4">
+                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
                       <User size={12} className="text-amber-400" /> Agent Identity
                     </p>
                     {user ? (
-                      <div className="flex items-center gap-3 bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                        <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-white/10" referrerPolicy="no-referrer" />
+                      <div className="flex items-center gap-3 bg-slate-950 p-2.5 sm:p-3 rounded-2xl border border-slate-800">
+                        <img src={user.photoURL || ''} className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10" referrerPolicy="no-referrer" />
                         <div>
-                          <p className="text-[10px] text-white font-black uppercase tracking-widest">{user.displayName}</p>
+                          <p className="text-[9px] sm:text-[10px] text-white font-black uppercase tracking-widest">{user.displayName}</p>
                           <button onClick={() => auth.signOut()} className="text-[8px] text-slate-500 hover:text-white uppercase font-bold">Logout</button>
                         </div>
                       </div>
                     ) : (
                       <button 
                         onClick={handleSignIn}
-                        className="w-full bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
+                        className="w-full bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] flex items-center justify-center gap-2 hover:bg-slate-200 transition-all shadow-lg active:scale-95"
                       >
                         <Zap size={14} className="fill-current" /> Sign in with Google
                       </button>
@@ -1684,14 +1710,14 @@ export default function App() {
                         const val = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
                         setPlayerName(val);
                       }}
-                      className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 px-4 text-white font-black uppercase tracking-widest text-[10px] focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
+                      className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 px-4 text-white font-black uppercase tracking-widest text-[9px] sm:text-[10px] focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
                       placeholder="SET PLAYER NAME..."
                     />
                   </div>
 
                   {/* Difficulty Selection */}
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                  <div className="space-y-3 sm:space-y-4">
+                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
                       <Zap size={12} className="text-sky-400" /> Game Difficulty
                     </p>
                     <div className="grid grid-cols-3 gap-2">
@@ -1703,7 +1729,7 @@ export default function App() {
                             playSound(440 + (level === 'HARD' ? 200 : level === 'MEDIUM' ? 100 : 0), 'sine', 0.1, 0.05);
                           }}
                           disabled={isGameRunning}
-                          className={`py-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest ${
+                          className={`py-2.5 sm:py-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[8px] font-black uppercase tracking-widest ${
                             difficulty === level 
                               ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} border-transparent text-white shadow-lg` 
                               : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
@@ -1717,17 +1743,17 @@ export default function App() {
                   </div>
 
                   {/* Volume Control */}
-                  <div className="space-y-4">
+                  <div className="space-y-3 sm:space-y-4">
                     <div className="flex justify-between items-center">
-                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
                         <Sliders size={12} className="text-amber-400" /> Audio Calibration
                       </p>
-                      <span className="text-[10px] font-mono text-amber-500">{Math.round(volume * 100)}%</span>
+                      <span className="text-[9px] sm:text-[10px] font-mono text-amber-500">{Math.round(volume * 100)}%</span>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 sm:gap-4">
                       <button 
                         onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                        className="p-2 sm:p-2.5 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
                       >
                         {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                       </button>
@@ -1743,7 +1769,7 @@ export default function App() {
                     </div>
                     
                     {/* Individual Sound Toggles */}
-                    <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 mt-2">
                       {[
                         { id: 'tap', label: 'Taps', icon: <Star size={10} /> },
                         { id: 'bonus', label: 'Bonuses', icon: <Zap size={10} /> },
@@ -1759,7 +1785,7 @@ export default function App() {
                               playSound(s.id === 'miss' ? 60 : 440, 'sine', 0.1, 0.05);
                             }
                           }}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-[8px] font-black uppercase tracking-widest ${
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-[8px] font-black uppercase tracking-widest min-h-[38px] ${
                             soundSettings[s.id as keyof typeof soundSettings]
                               ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                               : 'bg-slate-950 border-slate-800 text-slate-600'
@@ -1772,6 +1798,7 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
 
                   {/* Tap Sensitivity */}
                   <div className="space-y-4">
@@ -1800,13 +1827,13 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Circle Spawn Rate */}
+                  {/* Global Game Speed */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                        <Activity size={12} className="text-rose-400" /> Spawn Rate
+                        <Activity size={12} className="text-rose-400" /> Global Game Speed
                       </p>
-                      <span className="text-[10px] font-mono text-rose-500">{spawnRateMultiplier.toFixed(1)}x</span>
+                      <span className="text-[10px] font-mono text-rose-500">{gameSpeed.toFixed(1)}x</span>
                     </div>
                     <div className="flex items-center gap-4">
                       <input 
@@ -1814,16 +1841,16 @@ export default function App() {
                         min="0.5" 
                         max="2.5" 
                         step="0.1" 
-                        value={spawnRateMultiplier} 
+                        value={gameSpeed} 
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          setSpawnRateMultiplier(val);
+                          setGameSpeed(val);
                         }}
                         className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
                       />
                     </div>
                     <p className="text-[8px] text-slate-600 font-bold uppercase tracking-wider">
-                      Adjust the frequency of circle spawns. Overrides baseline difficulty speed.
+                      Adjusts both circle spawn rate and fall velocity. Multiplies the baseline difficulty settings.
                     </p>
                   </div>
 
@@ -2238,41 +2265,41 @@ export default function App() {
                   </motion.div>
 
                   {/* Score Summary Card */}
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-6 sm:p-8 mb-8 relative overflow-hidden backdrop-blur-sm shadow-2xl">
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 mb-6 sm:mb-8 relative overflow-hidden backdrop-blur-sm shadow-2xl">
                     {score >= highScore && score > 0 && (
                       <motion.div 
                         initial={{ scale: 0, rotate: -20 }}
                         animate={{ scale: 1, rotate: -15 }}
-                        className="absolute -top-2 -right-4 bg-amber-400 text-slate-950 text-[10px] uppercase font-black px-6 py-2 rounded-full shadow-lg z-10 border-2 border-slate-900"
+                        className="absolute -top-1 -right-3 bg-amber-400 text-slate-950 text-[8px] sm:text-[10px] uppercase font-black px-4 sm:px-6 py-1.5 sm:py-2 rounded-full shadow-lg z-10 border-2 border-slate-900"
                       >
                         New Personal Best!
                       </motion.div>
                     )}
                     
-                    <div className="flex flex-col gap-6">
+                    <div className="flex flex-col gap-4 sm:gap-6">
                       <div>
-                        <p className="text-slate-400 uppercase tracking-widest font-black text-[10px] mb-1">Final Score</p>
+                        <p className="text-slate-400 uppercase tracking-widest font-black text-[9px] sm:text-[10px] mb-1">Final Score</p>
                         <motion.p 
                           initial={{ scale: 0.5 }}
                           animate={{ scale: 1 }}
-                          className="text-6xl sm:text-7xl font-black text-white italic drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                          className="text-5xl sm:text-7xl font-black text-white italic drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                         >
                           {score}
                         </motion.p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-6 mt-2">
+                      <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-5 sm:pt-6 mt-1 sm:mt-2">
                         <div className="text-center">
-                            <p className="text-slate-500 uppercase tracking-widest font-black text-[9px] mb-1">High Score</p>
-                            <p className="text-amber-400 font-black text-xl">{highScore}</p>
+                            <p className="text-slate-500 uppercase tracking-widest font-black text-[8px] sm:text-[9px] mb-1">High Score</p>
+                            <p className="text-amber-400 font-black text-lg sm:text-xl">{highScore}</p>
                         </div>
                         <div className="text-center border-l border-slate-800">
-                            <p className="text-slate-500 uppercase tracking-widest font-black text-[9px] mb-1">Best Combo</p>
+                            <p className="text-slate-500 uppercase tracking-widest font-black text-[8px] sm:text-[9px] mb-1">Best Combo</p>
                             <motion.p 
                               initial={{ scale: 0.5, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-                              className="text-sky-400 font-black text-xl"
+                              className="text-sky-400 font-black text-lg sm:text-xl"
                             >
                               {maxCombo}x
                             </motion.p>
@@ -2282,19 +2309,19 @@ export default function App() {
                   </div>
 
                   {/* Actions */}
-                  <div className="grid grid-cols-1 gap-4 w-full px-4">
-                    <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:gap-4 w-full px-2 sm:px-4">
+                    <div className="flex flex-col gap-2.5 sm:gap-3">
                       <button 
                         onClick={startGame}
-                        className="w-full text-white px-8 py-5 sm:py-6 rounded-[1.5rem] sm:rounded-2xl font-black uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden"
+                        className="w-full text-white px-8 py-4.5 sm:py-6 rounded-2xl sm:rounded-2xl font-black uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 group relative overflow-hidden"
                         style={{ backgroundColor: THEMES[theme].primary }}
                       >
                         <div className="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
-                        <RotateCcw size={20} className="group-hover:rotate-180 transition-transform duration-500" />
-                        <span className="text-sm sm:text-base">Play Again</span>
+                        <RotateCcw size={18} className="group-hover:rotate-180 transition-transform duration-500 sm:w-5 sm:h-5" />
+                        <span className="text-xs sm:text-base">Play Again</span>
                       </button>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                         <button 
                           onClick={() => {
                             setShowIntro(true);
@@ -2303,7 +2330,7 @@ export default function App() {
                             setCombo(0);
                             setMaxCombo(0);
                           }}
-                          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest transition-all border border-slate-700 active:scale-95 flex items-center justify-center gap-2"
+                          className="bg-slate-800 hover:bg-slate-700 text-white px-4 sm:px-6 py-3.5 sm:py-4 rounded-2xl font-black uppercase tracking-widest transition-all border border-slate-700 active:scale-95 flex items-center justify-center gap-2 text-[10px] sm:text-xs"
                         >
                           Menu
                         </button>
@@ -2325,12 +2352,13 @@ export default function App() {
                               alert("Score copied to clipboard!");
                             }
                           }}
-                          className="bg-white hover:bg-slate-100 text-slate-950 px-6 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                          className="bg-white hover:bg-slate-100 text-slate-950 px-4 sm:px-6 py-3.5 sm:py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 text-[10px] sm:text-xs"
                         >
-                          Share <Zap size={16} className="fill-current" />
+                          Share <Zap size={14} className="fill-current sm:w-4 sm:h-4" />
                         </button>
                       </div>
                     </div>
+
 
                     {!user && (
                       <button 
