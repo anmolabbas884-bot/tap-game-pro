@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info } from 'lucide-react';
+import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info, Settings, Sliders, Palette, Check, Maximize, Minimize, Star, Clock } from 'lucide-react';
 
 interface Circle {
   id: number;
@@ -14,6 +14,7 @@ interface Circle {
   color: string;
   size: number;
   letter: string;
+  type: 'NORMAL' | 'BONUS_POINTS' | 'BONUS_TIME';
 }
 
 interface Particle {
@@ -48,6 +49,15 @@ const WAVEFORMS: Record<Difficulty, OscillatorType> = {
 };
 const FEEDBACK_WORDS = ["NICE!", "WOW!", "PRO!", "GREAT!", "EXCELLENT!", "SUPER!", "FAST!"];
 
+type Theme = 'CLASSIC' | 'NEON' | 'MONO' | 'CYBER';
+
+const THEMES: Record<Theme, { name: string; primary: string; secondary: string; bg: string; accent: string }> = {
+  CLASSIC: { name: 'Classic', primary: '#38bdf8', secondary: '#0ea5e9', bg: 'bg-slate-950', accent: 'sky' },
+  NEON: { name: 'Neon', primary: '#f472b6', secondary: '#db2777', bg: 'bg-black', accent: 'pink' },
+  MONO: { name: 'Bento', primary: '#f8fafc', secondary: '#94a3b8', bg: 'bg-zinc-950', accent: 'zinc' },
+  CYBER: { name: 'Cyber', primary: '#22c55e', secondary: '#16a34a', bg: 'bg-green-950/10', accent: 'emerald' },
+};
+
 type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
 
 const DIFFICULTY_SETTINGS: Record<Difficulty, { speed: number; label: string; color: string }> = {
@@ -63,7 +73,12 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>('MEDIUM');
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(0.5);
+  const [theme, setTheme] = useState<Theme>('CLASSIC');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [combo, setCombo] = useState(0);
+  const [maxCombo, setMaxCombo] = useState(0);
   const [sessionDuration, setSessionDuration] = useState(30);
   const lastTapTime = useRef(0);
   const [highScore, setHighScore] = useState(() => {
@@ -150,7 +165,8 @@ export default function App() {
     }
     
     // Set lower master volume for subtle effect
-    musicGainRef.current.gain.setTargetAtTime(isMuted ? 0 : 0.04, ctx.currentTime, 0.5);
+    const finalVolume = isMuted ? 0 : 0.04 * volume;
+    musicGainRef.current.gain.setTargetAtTime(finalVolume, ctx.currentTime, 0.5);
 
     let step = 0;
     const bpm = difficulty === 'HARD' ? 130 : difficulty === 'MEDIUM' ? 115 : 100;
@@ -268,15 +284,39 @@ export default function App() {
     };
   }, [isGameRunning, isPaused, isMuted, startBackgroundMusic]);
 
+  // Handle fullscreen changes (e.g. Esc key)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (err) {
+        console.error(`Error attempting to enable fullscreen: ${err}`);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  }, []);
+
   // Update music gain when muted changes
   useEffect(() => {
     if (musicGainRef.current && audioContextRef.current) {
-      musicGainRef.current.gain.setTargetAtTime(isMuted ? 0 : 0.03, audioContextRef.current.currentTime, 0.1);
+      const finalVolume = isMuted ? 0 : 0.03 * volume;
+      musicGainRef.current.gain.setTargetAtTime(finalVolume, audioContextRef.current.currentTime, 0.1);
     }
-  }, [isMuted]);
+  }, [isMuted, volume]);
 
   // sound player
-  const playSound = useCallback((frequency: number, type: OscillatorType = 'sine', duration = 0.1, volume = 0.1, sweep = true) => {
+  const playSound = useCallback((frequency: number, type: OscillatorType = 'sine', duration = 0.1, soundVolume = 0.1, sweep = true) => {
     if (isMuted) return;
     
     if (!audioContextRef.current) {
@@ -295,7 +335,7 @@ export default function App() {
       oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.5, ctx.currentTime + duration);
     }
 
-    gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+    gainNode.gain.setValueAtTime(soundVolume * volume, ctx.currentTime);
     gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
 
     oscillator.connect(gainNode);
@@ -303,7 +343,7 @@ export default function App() {
 
     oscillator.start();
     oscillator.stop(ctx.currentTime + duration);
-  }, [isMuted]);
+  }, [isMuted, volume]);
 
   const playGameOverSound = useCallback(() => {
     const notes = [440, 330, 220]; // A4, E4, A3
@@ -354,6 +394,7 @@ export default function App() {
     setScore(0);
     scoreRef.current = 0;
     setCombo(0);
+    setMaxCombo(0);
     comboRef.current = 0;
     setTimeLeft(sessionDuration);
     setSpeed(settings.speed);
@@ -471,13 +512,20 @@ export default function App() {
     const letters = getDifficultyLetters();
     const randomLetter = letters[Math.floor(Math.random() * letters.length)];
     
+    // Type probability
+    const rand = Math.random();
+    let type: Circle['type'] = 'NORMAL';
+    if (rand < 0.05) type = 'BONUS_POINTS';
+    else if (rand < 0.10) type = 'BONUS_TIME';
+
     const newCircle: Circle = {
       id: nextCircleId.current++,
       x,
       y,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      color: type === 'BONUS_POINTS' ? '#facc15' : type === 'BONUS_TIME' ? '#38bdf8' : COLORS[Math.floor(Math.random() * COLORS.length)],
       size,
-      letter: randomLetter
+      letter: randomLetter,
+      type
     };
 
     setCircles(prev => [...prev, newCircle]);
@@ -518,45 +566,54 @@ export default function App() {
       newCombo = 1;
     }
     setCombo(newCombo);
+    setMaxCombo(prev => Math.max(prev, newCombo));
     comboRef.current = newCombo;
     lastTapTime.current = now;
 
     setScore(prev => {
-      const next = prev + 1;
+      let bonus = 1;
+      if (circle.type === 'BONUS_POINTS') bonus = 10;
+      const next = prev + bonus;
       scoreRef.current = next;
       return next;
     });
+
+    if (circle.type === 'BONUS_TIME') {
+      setTimeLeft(prev => prev + 5);
+    }
 
     setLastHitColor(circle.color);
     setCircles(prev => prev.filter(c => c.id !== circle.id));
     
     // Play sound logic using current values
     const currentScore = scoreRef.current;
-    const isBonus = currentScore % 5 === 0;
-    if (isBonus) playBonusSound();
+    const isBonus = currentScore % 5 === 0 || circle.type !== 'NORMAL';
+    if (isBonus || circle.type !== 'NORMAL') playBonusSound();
     
     if (newCombo > 0 && newCombo % 10 === 0) {
       playComboMilestoneSound();
     }
 
-    const freqBoost = Math.min(newCombo * 10, 200); // Slightly reduced multiplier for clearer pitch
+    // Determine waveform and volume based on difficulty
+    const waveform = WAVEFORMS[difficulty];
+    const tapVolume = difficulty === 'HARD' ? 0.05 : 0.1; // Square waves are louder, so lower volume
+    const tapDuration = circle.type !== 'NORMAL' ? 0.3 : (difficulty === 'HARD' ? 0.08 : 0.15);
+
+    const freqBoost = circle.type === 'BONUS_POINTS' ? 400 : circle.type === 'BONUS_TIME' ? 200 : Math.min(newCombo * 10, 200);
     const baseFreq = COLOR_FREQ_BASE[circle.color] || 440;
     
     // Add ±5% frequency jitter for character
     const jitterFactor = 0.95 + (Math.random() * 0.1);
     const finalFreq = (baseFreq + freqBoost) * jitterFactor;
-    
-    // Determine waveform and volume based on difficulty
-    const waveform = WAVEFORMS[difficulty];
-    const tapVolume = difficulty === 'HARD' ? 0.05 : 0.1; // Square waves are louder, so lower volume
-    const tapDuration = difficulty === 'HARD' ? 0.08 : 0.15;
 
     playSound(finalFreq, waveform, tapDuration, tapVolume, true);
 
     // Create effect
-    const word = isBonus ? FEEDBACK_WORDS[Math.floor(Math.random() * FEEDBACK_WORDS.length)] : (newCombo > 5 ? `${newCombo}x COMBO!` : "+1");
+    let word = isBonus ? FEEDBACK_WORDS[Math.floor(Math.random() * FEEDBACK_WORDS.length)] : (newCombo > 5 ? `${newCombo}x COMBO!` : "+1");
+    if (circle.type === 'BONUS_POINTS') word = "+10 BONUS!";
+    if (circle.type === 'BONUS_TIME') word = "+5s TIME!";
     
-    const particleCount = 10 + Math.min(newCombo * 2, 20);
+    const particleCount = circle.type !== 'NORMAL' ? 30 : 10 + Math.min(newCombo * 2, 20);
     const particles: Particle[] = Array.from({ length: particleCount }).map((_, i) => {
       const angle = (Math.random() * 360) * (Math.PI / 180);
       const dist = 30 + Math.random() * (40 + newCombo * 5);
@@ -618,7 +675,7 @@ export default function App() {
 
   return (
     <div 
-      className="min-h-screen bg-slate-950 text-white font-sans flex flex-col items-center p-4 overflow-x-hidden select-none"
+      className={`min-h-screen ${THEMES[theme].bg} text-white font-sans flex flex-col items-center p-4 overflow-x-hidden select-none transition-colors duration-500`}
       onClick={() => isGameRunning && !isPaused && playMissSound()}
     >
       <AnimatePresence>
@@ -674,12 +731,21 @@ export default function App() {
                     <div className="bg-sky-500/10 p-8 sm:p-12 rounded-full border-4 border-sky-500/20 backdrop-blur-2xl relative z-10 mb-6 sm:mb-8 mx-auto w-fit">
                       <Zap size={60} className="sm:w-[120px] sm:h-[120px] text-sky-400 fill-current drop-shadow-[0_0_50px_rgba(56,189,248,0.6)]" />
                     </div>
-                    <h1 className="text-4xl sm:text-8xl font-black italic tracking-tighter text-white drop-shadow-[0_10px_30px_rgba(56,189,248,0.4)] uppercase">
-                      TAP GAME <span className="text-sky-400">PRO</span>
+                    <h1 className="text-4xl sm:text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-2xl">
+                      TAP GAME <span style={{ color: THEMES[theme].primary }}>PRO</span>
                     </h1>
                     <div className="mt-2 sm:mt-4 text-slate-500 font-bold uppercase tracking-[0.5em] sm:tracking-[1em] text-[8px] sm:text-[10px]">
                       Elite Reflex Training
                     </div>
+                    {highScore > 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="mt-6 flex items-center justify-center gap-2 text-amber-500 font-bold uppercase tracking-widest text-[10px]"
+                      >
+                        <Trophy size={12} className="fill-current" /> All-Time Record: {highScore}
+                      </motion.div>
+                    )}
                   </motion.div>
 
                   <motion.button 
@@ -693,6 +759,16 @@ export default function App() {
                     className="group relative px-10 sm:px-16 py-4 sm:py-5 rounded-full bg-white text-slate-950 font-black text-lg sm:text-2xl uppercase italic tracking-tighter hover:bg-sky-400 hover:text-white transition-all shadow-[0_0_60px_rgba(255,255,255,0.1)] hover:shadow-sky-500/50 hover:scale-110 active:scale-95"
                   >
                     Initialize Setup
+                  </motion.button>
+
+                  <motion.button 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 1 }}
+                    onClick={() => setShowSettings(true)}
+                    className="mt-6 flex items-center gap-2 text-slate-500 hover:text-white transition-all text-xs font-black uppercase tracking-widest"
+                  >
+                    <Settings size={14} /> Global Configuration
                   </motion.button>
                 </motion.div>
               ) : (
@@ -792,14 +868,30 @@ export default function App() {
           <motion.h1 
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="text-2xl sm:text-4xl font-black tracking-tighter flex items-center gap-2 text-sky-400 italic uppercase"
+            className="text-2xl sm:text-4xl font-black tracking-tighter flex items-center gap-2 italic uppercase transition-colors duration-500"
+            style={{ color: THEMES[theme].primary }}
           >
             <Zap className="fill-current w-5 h-5 sm:w-8 sm:h-8" /> Tap <span className="hidden sm:inline">Game</span> PRO
           </motion.h1>
           <div className="flex items-center gap-1 sm:gap-2">
             <button 
+              onClick={toggleFullscreen}
+              className="p-2 rounded-full hover:bg-slate-900 transition-colors text-slate-400 hover:text-white"
+              title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            </button>
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="p-2 rounded-full hover:bg-slate-900 transition-colors text-slate-400 hover:text-white"
+              title="Settings"
+            >
+              <Settings size={20} />
+            </button>
+            <button 
               onClick={() => setShowHelp(!showHelp)}
-              className={`p-2 rounded-full transition-all ${showHelp ? 'bg-sky-500 text-white shadow-lg' : 'hover:bg-slate-900 text-slate-400 hover:text-white'}`}
+              className={`p-2 rounded-full transition-all duration-300 ${showHelp ? 'text-white shadow-lg' : 'hover:bg-slate-900 text-slate-400 hover:text-white'}`}
+              style={showHelp ? { backgroundColor: THEMES[theme].primary } : {}}
               title="How to Play"
             >
               <Zap size={20} className={showHelp ? 'animate-pulse' : ''} />
@@ -834,7 +926,7 @@ export default function App() {
               )}
             </AnimatePresence>
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold">Score</span>
-            <span className="text-xl sm:text-2xl font-mono font-bold text-sky-400">{score}</span>
+            <span className="text-xl sm:text-2xl font-mono font-bold transition-colors duration-500" style={{ color: THEMES[theme].primary }}>{score}</span>
           </div>
           <div className="flex flex-col items-center border-x border-slate-800">
             <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1">
@@ -905,11 +997,12 @@ export default function App() {
           <button 
             onClick={startGame}
             disabled={isGameRunning}
-            className={`flex items-center gap-2 px-6 sm:px-8 py-2 sm:py-3 rounded-full font-bold text-base sm:text-lg transition-all shadow-lg active:scale-95 ${
+            className={`flex items-center gap-2 px-6 sm:px-8 py-2 sm:py-3 rounded-full font-bold text-base sm:text-lg transition-all shadow-lg active:scale-95 duration-500 ${
               isGameRunning 
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50' 
-                : 'bg-sky-500 hover:bg-sky-400 text-white hover:shadow-sky-500/20'
+                : 'text-white hover:opacity-90'
             }`}
+            style={!isGameRunning ? { backgroundColor: THEMES[theme].primary } : {}}
           >
             {score > 0 && !isGameRunning ? <RotateCcw size={18} /> : <Play size={18} />}
             {isGameRunning ? (isPaused ? 'Game Paused' : 'Game Running...') : score > 0 ? 'Retry' : 'Start Game'}
@@ -1087,6 +1180,153 @@ export default function App() {
         </AnimatePresence>
 
         <AnimatePresence>
+          {showSettings && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md flex items-center justify-center p-6"
+              onClick={() => setShowSettings(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-slate-900 border border-slate-800 p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-8"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter flex items-center gap-2">
+                    <Settings className="text-sky-400" /> Settings
+                  </h3>
+                  <button 
+                    onClick={() => setShowSettings(false)} 
+                    className="p-2 rounded-full hover:bg-slate-800 text-slate-500 hover:text-white transition-all"
+                  >
+                    <RotateCcw size={20} />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  {/* Volume Control */}
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                        <Sliders size={12} className="text-amber-400" /> Audio Calibration
+                      </p>
+                      <span className="text-[10px] font-mono text-amber-500">{Math.round(volume * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => setIsMuted(!isMuted)}
+                        className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                      >
+                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                      </button>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="2" 
+                        step="0.01" 
+                        value={volume} 
+                        onChange={(e) => setVolume(parseFloat(e.target.value))}
+                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Device Sync */}
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <Maximize size={12} className="text-sky-400" /> Display Mode
+                    </p>
+                    <button
+                      onClick={toggleFullscreen}
+                      className={`w-full py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                        isFullscreen 
+                          ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' 
+                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                      }`}
+                    >
+                      {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+                      {isFullscreen ? 'Exit Fullscreen' : 'Enable Fullscreen'}
+                    </button>
+                  </div>
+
+                  {/* Device Sync */}
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <Zap size={12} className="text-indigo-400" /> Interaction Mode
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setIsMobileMode(false)}
+                        className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                          !isMobileMode 
+                            ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' 
+                            : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                        }`}
+                      >
+                        Desktop (Keys)
+                      </button>
+                      <button
+                        onClick={() => setIsMobileMode(true)}
+                        className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                          isMobileMode 
+                            ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg shadow-indigo-500/20' 
+                            : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                        }`}
+                      >
+                        Mobile (Touch)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Visual Interface */}
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                      <Palette size={12} className="text-emerald-400" /> Visual Interface
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(Object.keys(THEMES) as Theme[]).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => {
+                            setTheme(t);
+                            playSound(660, 'sine', 0.1, 0.05);
+                          }}
+                          className={`p-3 rounded-2xl border-2 transition-all flex items-center gap-3 ${
+                            theme === t 
+                              ? 'bg-slate-800 border-white/20 text-white' 
+                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                          }`}
+                        >
+                          <div 
+                            className="w-4 h-4 rounded-full" 
+                            style={{ backgroundColor: THEMES[t].primary }}
+                          />
+                          <span className="text-[10px] font-black uppercase tracking-widest">{THEMES[t].name}</span>
+                          {theme === t && <Check size={12} className="ml-auto text-emerald-400" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    onClick={() => setShowSettings(false)}
+                    className="w-full bg-white text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-[0.2em] text-xs hover:bg-sky-400 hover:text-white active:scale-95"
+                  >
+                    Apply Configurations
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {isKeyboardHit && (
             <motion.div
               initial={{ opacity: 0, scale: 0.5 }}
@@ -1117,25 +1357,42 @@ export default function App() {
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0, opacity: 0 }}
-              onClick={(e) => handleTap(circle, e)}
-              className="absolute cursor-pointer rounded-full shadow-lg flex items-center justify-center"
+              onClick={(e) => handleTap(circle, false, e)}
+              className={`absolute cursor-pointer rounded-full shadow-lg flex items-center justify-center ${
+                circle.type === 'BONUS_POINTS' ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-slate-900 border-4 border-amber-300' : 
+                circle.type === 'BONUS_TIME' ? 'ring-4 ring-sky-400 ring-offset-4 ring-offset-slate-900 border-4 border-sky-300' : ''
+              }`}
               style={{
                 left: circle.x,
                 top: circle.y,
                 width: circle.size,
                 height: circle.size,
                 backgroundColor: circle.color,
-                boxShadow: `0 0 20px ${circle.color}44`
+                boxShadow: circle.type !== 'NORMAL' ? `0 0 40px ${circle.color}88` : `0 0 20px ${circle.color}44`
               }}
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
             >
-              <span 
-                className="text-white font-black select-none drop-shadow-md pb-0.5"
-                style={{ fontSize: circle.size * 0.4 }}
-              >
-                {!isMobileMode && circle.letter}
-              </span>
+              <div className="relative flex items-center justify-center w-full h-full">
+                {circle.type === 'BONUS_POINTS' && (
+                  <Star 
+                    size={circle.size * 0.5} 
+                    className="text-white fill-current animate-pulse absolute" 
+                  />
+                )}
+                {circle.type === 'BONUS_TIME' && (
+                  <Clock 
+                    size={circle.size * 0.5} 
+                    className="text-white fill-current animate-spin-slow absolute" 
+                  />
+                )}
+                <span 
+                  className={`text-white font-black select-none drop-shadow-md pb-0.5 ${circle.type !== 'NORMAL' ? 'opacity-40 scale-75' : ''}`}
+                  style={{ fontSize: circle.size * 0.4 }}
+                >
+                  {!isMobileMode && circle.letter}
+                </span>
+              </div>
             </motion.div>
           ))}
         </AnimatePresence>
@@ -1246,13 +1503,33 @@ export default function App() {
                 className="text-center p-8 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl"
               >
                 <h2 className="text-4xl font-black text-rose-500 mb-2 uppercase italic tracking-tighter">Game Over</h2>
-                <p className="text-slate-400 mb-6">Final Score: <span className="text-white font-bold">{score}</span></p>
-                <div className="grid grid-cols-1 gap-3 min-w-[200px]">
+                <div className="space-y-1 mb-6">
+                  <p className="text-slate-400">Final Score: <span className="text-white font-bold text-xl">{score}</span></p>
+                  <div className="flex justify-center gap-4 text-[10px] uppercase tracking-widest font-black">
+                    <p className="text-slate-500">
+                      Best: <span className="text-amber-400">{highScore}</span>
+                    </p>
+                    <p className="text-slate-500">
+                      Combo: <span className="text-sky-400">{maxCombo}</span>
+                    </p>
+                  </div>
+                  {score >= highScore && score > 0 && (
+                    <motion.div 
+                      initial={{ scale: 0.5, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-amber-500/20 text-amber-500 text-[10px] uppercase font-black px-3 py-1 rounded-full mt-3 inline-block border border-amber-500/30"
+                    >
+                      🏆 New Personal Best
+                    </motion.div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-3 min-w-[240px]">
                   <button 
                     onClick={startGame}
-                    className="bg-sky-500 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-sky-400 transition-all shadow-lg active:scale-95"
+                    className="text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                    style={{ backgroundColor: THEMES[theme].primary }}
                   >
-                    Quick Retry
+                    Quick Retry <RotateCcw size={16} />
                   </button>
                   <button 
                     onClick={() => {
@@ -1260,14 +1537,15 @@ export default function App() {
                       setIntroStep('TITLE');
                       setScore(0);
                       setCombo(0);
+                      setMaxCombo(0);
                     }}
-                    className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700 active:scale-95"
+                    className="bg-slate-800 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700 active:scale-95"
                   >
                     Main Menu
                   </button>
                   <button 
                     onClick={async () => {
-                      const text = `I just scored ${score} in Tap Game Pro! Can you beat me?`;
+                      const text = `I just scored ${score} in Tap Game Pro! Best: ${highScore}. Can you beat me?`;
                       if (navigator.share) {
                         try {
                           await navigator.share({
@@ -1284,7 +1562,7 @@ export default function App() {
                         alert("Score copied to clipboard!");
                       }
                     }}
-                    className="bg-white text-slate-950 px-8 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-amber-400 hover:text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                    className="bg-white text-slate-950 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-100 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
                   >
                     Share Result <Zap size={14} className="fill-current" />
                   </button>
