@@ -733,9 +733,10 @@ export default function App() {
       lastTime = time;
 
       if (deltaTime < 100) { // Limit huge jumps if tab was inactive
+        const baselineVelocity = 1200 / speed;
         setCircles(prev => prev.map(circle => ({
           ...circle,
-          y: circle.y + (0.15 * gameSpeed * (deltaTime / 16.67)) // Baseline speed scaled by deltaTime
+          y: circle.y + (0.2 * baselineVelocity * gameSpeed * (deltaTime / 16.67))
         })));
       }
 
