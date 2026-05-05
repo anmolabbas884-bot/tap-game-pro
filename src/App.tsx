@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info, Settings, Sliders, Palette, Check, Maximize, Minimize, Star, Clock, User, Activity } from 'lucide-react';
+import { Trophy, Timer, Play, RotateCcw, Zap, Volume2, VolumeX, Info, Settings, Sliders, Palette, Check, Maximize, Minimize, Star, Clock, User, Activity, Monitor } from 'lucide-react';
 import { initFirebase, auth, signInWithGoogle } from './lib/firebase';
 import { getTopScores, saveHighScore, LeaderboardEntry } from './services/leaderboardService';
 
@@ -86,6 +86,7 @@ export default function App() {
   const [soundSettings, setSoundSettings] = useState(() => {
     const saved = localStorage.getItem("tapSoundSettings");
     return saved ? JSON.parse(saved) : {
+      ambience: true,
       tap: true,
       bonus: true,
       miss: true,
@@ -102,6 +103,7 @@ export default function App() {
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'GAMEPLAY' | 'AUDIO' | 'PROFILE'>('GAMEPLAY');
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
   const [sessionDuration, setSessionDuration] = useState(() => {
@@ -226,7 +228,7 @@ export default function App() {
     const bassSeq = difficulty === 'HARD' ? [40, 0, 0, 45, 0, 40, 50, 0] : [40, 0, 0, 0, 40, 0, 0, 0];
 
     const playBeat = () => {
-      if (((!isGameRunning && !isFadingMusic.current) || isPaused || isMuted)) return;
+      if (((!isGameRunning && !isFadingMusic.current) || isPaused || isMuted || !soundSettings.ambience)) return;
       
       const time = ctx.currentTime + 0.05; // Schedule slightly ahead for stability
       
@@ -371,6 +373,23 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  const resetSettings = () => {
+    setVolume(1.0);
+    setIsMuted(false);
+    setSensitivity(1.2);
+    setGameSpeed(1.0);
+      setSoundSettings({
+        ambience: true,
+        tap: true,
+        bonus: true,
+        miss: true,
+        combo: true
+      });
+    setTheme('CLASSIC');
+    setIsMobileMode(false);
+    playSound(440, 'sine', 0.2, 0.1);
+  };
 
   const handleSignIn = async () => {
     try {
@@ -1666,297 +1685,327 @@ export default function App() {
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-slate-900 border border-slate-800 p-5 sm:p-8 rounded-[2rem] shadow-2xl max-w-md w-full space-y-6 sm:space-y-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
+                className="bg-slate-900 border border-slate-800 rounded-[2rem] shadow-2xl max-w-md w-full flex flex-col max-h-[90vh] overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex justify-between items-center mb-1 sm:mb-2">
-                  <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tighter flex items-center gap-2">
-                    <Settings className="text-sky-400" /> Settings
-                  </h3>
-                  <button 
-                    onClick={() => setShowSettings(false)} 
-                    className="p-2 rounded-full hover:bg-slate-800 text-slate-500 hover:text-white transition-all scale-90 sm:scale-100"
-                  >
-                    <RotateCcw size={20} />
-                  </button>
-                </div>
-
-                <div className="space-y-5 sm:space-y-6">
-                  {/* Agent Identity */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                      <User size={12} className="text-amber-400" /> Agent Identity
-                    </p>
-                    {user ? (
-                      <div className="flex items-center gap-3 bg-slate-950 p-2.5 sm:p-3 rounded-2xl border border-slate-800">
-                        <img src={user.photoURL || ''} className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10" referrerPolicy="no-referrer" />
-                        <div>
-                          <p className="text-[9px] sm:text-[10px] text-white font-black uppercase tracking-widest">{user.displayName}</p>
-                          <button onClick={() => auth.signOut()} className="text-[8px] text-slate-500 hover:text-white uppercase font-bold">Logout</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button 
-                        onClick={handleSignIn}
-                        className="w-full bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] flex items-center justify-center gap-2 hover:bg-slate-200 transition-all shadow-lg active:scale-95"
-                      >
-                        <Zap size={14} className="fill-current" /> Sign in with Google
-                      </button>
-                    )}
-                    <input 
-                      type="text" 
-                      maxLength={20}
-                      value={playerName}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
-                        setPlayerName(val);
-                      }}
-                      className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 px-4 text-white font-black uppercase tracking-widest text-[9px] sm:text-[10px] focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
-                      placeholder="SET PLAYER NAME..."
-                    />
-                  </div>
-
-                  {/* Difficulty Selection */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                      <Zap size={12} className="text-sky-400" /> Game Difficulty
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((level) => (
-                        <button
-                          key={level}
-                          onClick={() => {
-                            setDifficulty(level);
-                            playSound(440 + (level === 'HARD' ? 200 : level === 'MEDIUM' ? 100 : 0), 'sine', 0.1, 0.05);
-                          }}
-                          disabled={isGameRunning}
-                          className={`py-2.5 sm:py-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[8px] font-black uppercase tracking-widest ${
-                            difficulty === level 
-                              ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} border-transparent text-white shadow-lg` 
-                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                          } ${isGameRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          {DIFFICULTY_SETTINGS[level].label}
-                          <span className="opacity-60 text-[6px]">{DIFFICULTY_SETTINGS[level].multiplier}x Points</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Volume Control */}
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="flex justify-between items-center">
-                      <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                        <Sliders size={12} className="text-amber-400" /> Audio Calibration
-                      </p>
-                      <span className="text-[9px] sm:text-[10px] font-mono text-amber-500">{Math.round(volume * 100)}%</span>
-                    </div>
-                    <div className="flex items-center gap-3 sm:gap-4">
-                      <button 
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 sm:p-2.5 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                      >
-                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                      </button>
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="2" 
-                        step="0.01" 
-                        value={volume} 
-                        onChange={(e) => setVolume(parseFloat(e.target.value))}
-                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-                      />
-                    </div>
-                    
-                    {/* Individual Sound Toggles */}
-                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 mt-2">
-                      {[
-                        { id: 'tap', label: 'Taps', icon: <Star size={10} /> },
-                        { id: 'bonus', label: 'Bonuses', icon: <Zap size={10} /> },
-                        { id: 'miss', label: 'Misses', icon: <VolumeX size={10} /> },
-                        { id: 'combo', label: 'Streaks', icon: <Trophy size={10} /> }
-                      ].map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => {
-                            const newSettings = { ...soundSettings, [s.id]: !soundSettings[s.id as keyof typeof soundSettings] };
-                            setSoundSettings(newSettings);
-                            if (newSettings[s.id as keyof typeof soundSettings]) {
-                              playSound(s.id === 'miss' ? 60 : 440, 'sine', 0.1, 0.05);
-                            }
-                          }}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-[8px] font-black uppercase tracking-widest min-h-[38px] ${
-                            soundSettings[s.id as keyof typeof soundSettings]
-                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                              : 'bg-slate-950 border-slate-800 text-slate-600'
-                          }`}
-                        >
-                          {s.icon}
-                          {s.label}
-                          {soundSettings[s.id as keyof typeof soundSettings] && <Check size={8} className="ml-auto" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-
-                  {/* Tap Sensitivity */}
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                        <Zap size={12} className="text-emerald-400" /> Tap Sensitivity
-                      </p>
-                      <span className="text-[10px] font-mono text-emerald-500">{Math.round((sensitivity - 0.5) * 50)}%</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <input 
-                        type="range" 
-                        min="0.8" 
-                        max="2.5" 
-                        step="0.1" 
-                        value={sensitivity} 
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setSensitivity(val);
-                        }}
-                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                      />
-                    </div>
-                    <p className="text-[8px] text-slate-600 font-bold uppercase tracking-wider">
-                      Higher sensitivity increases the hit area for circles.
-                    </p>
-                  </div>
-
-                  {/* Global Game Speed */}
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                        <Activity size={12} className="text-rose-400" /> Global Game Speed
-                      </p>
-                      <span className="text-[10px] font-mono text-rose-500">{gameSpeed.toFixed(1)}x</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <input 
-                        type="range" 
-                        min="0.5" 
-                        max="2.5" 
-                        step="0.1" 
-                        value={gameSpeed} 
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setGameSpeed(val);
-                        }}
-                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
-                      />
-                    </div>
-                    <p className="text-[8px] text-slate-600 font-bold uppercase tracking-wider">
-                      Adjusts both circle spawn rate and fall velocity. Multiplies the baseline difficulty settings.
-                    </p>
-                  </div>
-
-                  {/* Device Sync */}
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                      <Maximize size={12} className="text-sky-400" /> Display Mode
-                    </p>
-                    <button
-                      onClick={toggleFullscreen}
-                      className={`w-full py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
-                        isFullscreen 
-                          ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' 
-                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                      }`}
+                {/* Header */}
+                <div className="p-6 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl sm:text-2xl font-black text-white italic uppercase tracking-tighter flex items-center gap-2">
+                      <Settings className="text-sky-400" /> Settings
+                    </h3>
+                    <button 
+                      onClick={() => setShowSettings(false)} 
+                      className="p-2 rounded-full hover:bg-slate-800 text-slate-500 hover:text-white transition-all scale-90 sm:scale-100"
                     >
-                      {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
-                      {isFullscreen ? 'Exit Fullscreen' : 'Enable Fullscreen'}
+                      <RotateCcw size={20} />
                     </button>
                   </div>
 
-                  {/* Device Sync */}
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                      <Zap size={12} className="text-indigo-400" /> Interaction Mode
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
+                  {/* Tabs */}
+                  <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-800">
+                    {(['GAMEPLAY', 'AUDIO', 'PROFILE'] as const).map((tab) => (
                       <button
-                        onClick={() => setIsMobileMode(false)}
-                        className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
-                          !isMobileMode 
-                            ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' 
-                            : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                        key={tab}
+                        onClick={() => {
+                          setActiveSettingsTab(tab);
+                          playSound(440, 'sine', 0.05, 0.03);
+                        }}
+                        className={`flex-1 py-2 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                          activeSettingsTab === tab 
+                            ? 'bg-slate-800 text-white shadow-lg' 
+                            : 'text-slate-500 hover:text-slate-300'
                         }`}
                       >
-                        Desktop (Keys)
+                        {tab}
                       </button>
-                      <button
-                        onClick={() => setIsMobileMode(true)}
-                        className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
-                          isMobileMode 
-                            ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg shadow-indigo-500/20' 
-                            : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                        }`}
-                      >
-                        Mobile (Touch)
-                      </button>
-                    </div>
-                    
-                    {!isMobileMode && (
-                      <div className="flex items-center justify-between bg-slate-950/50 p-3 rounded-2xl border border-slate-800/50">
-                        <div className="flex items-center gap-2">
-                          <Info size={12} className="text-sky-400" />
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Show Keyboard Hints</p>
-                        </div>
-                        <button 
-                          onClick={() => setShowKeyHints(!showKeyHints)}
-                          className={`w-10 h-5 rounded-full relative transition-colors ${showKeyHints ? 'bg-sky-500' : 'bg-slate-800'}`}
-                        >
-                          <motion.div 
-                            animate={{ x: showKeyHints ? 22 : 2 }}
-                            className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
-                          />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Visual Interface */}
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                      <Palette size={12} className="text-emerald-400" /> Visual Interface
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {(Object.keys(THEMES) as Theme[]).map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => {
-                            setTheme(t);
-                            playSound(660, 'sine', 0.1, 0.05);
-                          }}
-                          className={`p-3 rounded-2xl border-2 transition-all flex items-center gap-3 ${
-                            theme === t 
-                              ? 'bg-slate-800 border-white/20 text-white' 
-                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                          }`}
-                        >
-                          <div 
-                            className="w-4 h-4 rounded-full" 
-                            style={{ backgroundColor: THEMES[t].primary }}
-                          />
-                          <span className="text-[10px] font-black uppercase tracking-widest">{THEMES[t].name}</span>
-                          {theme === t && <Check size={12} className="ml-auto text-emerald-400" />}
-                        </button>
-                      ))}
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="pt-4">
+                {/* Content */}
+                <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+                  {activeSettingsTab === 'GAMEPLAY' && (
+                    <div className="space-y-6">
+                      {/* Difficulty Selection */}
+                      <div className="space-y-3 sm:space-y-4">
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                          <Zap size={12} className="text-sky-400" /> Game Difficulty
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((level) => (
+                            <button
+                              key={level}
+                              onClick={() => {
+                                setDifficulty(level);
+                                playSound(440 + (level === 'HARD' ? 200 : level === 'MEDIUM' ? 100 : 0), 'sine', 0.1, 0.05);
+                              }}
+                              disabled={isGameRunning}
+                              className={`py-2.5 sm:py-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[8px] font-black uppercase tracking-widest ${
+                                difficulty === level 
+                                  ? `${DIFFICULTY_SETTINGS[level].color.replace('text-', 'bg-').replace('-400', '-500')} border-transparent text-white shadow-lg` 
+                                  : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                              } ${isGameRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              {DIFFICULTY_SETTINGS[level].label}
+                              <span className="opacity-60 text-[6px]">{DIFFICULTY_SETTINGS[level].multiplier}x Points</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Sensitivity */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                            <Zap size={12} className="text-emerald-400" /> Tap Sensitivity
+                          </p>
+                          <span className="text-[10px] font-mono text-emerald-500">{Math.round((sensitivity - 0.5) * 50)}%</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <input 
+                            type="range" 
+                            min="0.8" 
+                            max="2.5" 
+                            step="0.1" 
+                            value={sensitivity} 
+                            onChange={(e) => setSensitivity(parseFloat(e.target.value))}
+                            className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Game Speed */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                            <Activity size={12} className="text-rose-400" /> Global Game Speed
+                          </p>
+                          <span className="text-[10px] font-mono text-rose-500">{gameSpeed.toFixed(1)}x</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <input 
+                            type="range" 
+                            min="0.5" 
+                            max="2.5" 
+                            step="0.1" 
+                            value={gameSpeed} 
+                            onChange={(e) => setGameSpeed(parseFloat(e.target.value))}
+                            className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Interaction Mode */}
+                      <div className="space-y-4">
+                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2 text-indigo-400">
+                          <Zap size={12} /> Interaction Mode
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            onClick={() => setIsMobileMode(false)}
+                            className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                              !isMobileMode 
+                                ? 'bg-sky-500 border-sky-400 text-white shadow-lg' 
+                                : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                            }`}
+                          >
+                            Desktop
+                          </button>
+                          <button
+                            onClick={() => setIsMobileMode(true)}
+                            className={`py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                              isMobileMode 
+                                ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg' 
+                                : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                            }`}
+                          >
+                            Mobile
+                          </button>
+                        </div>
+                        {!isMobileMode && (
+                          <div className="flex items-center justify-between bg-slate-950/50 p-3 rounded-2xl border border-slate-800/50">
+                            <div className="flex items-center gap-2">
+                              <Info size={12} className="text-sky-400" />
+                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Show Keyboard Hints</p>
+                            </div>
+                            <button 
+                              onClick={() => setShowKeyHints(!showKeyHints)}
+                              className={`w-10 h-5 rounded-full relative transition-colors ${showKeyHints ? 'bg-sky-500' : 'bg-slate-800'}`}
+                            >
+                              <motion.div 
+                                animate={{ x: showKeyHints ? 22 : 2 }}
+                                className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
+                              />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeSettingsTab === 'AUDIO' && (
+                    <div className="space-y-6">
+                      {/* Master Volume */}
+                      <div className="space-y-3 sm:space-y-4">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                            <Sliders size={12} className="text-amber-400" /> Master Volume
+                          </p>
+                          <span className="text-[9px] sm:text-[10px] font-mono text-amber-500">{Math.round(volume * 100)}%</span>
+                        </div>
+                        <div className="flex items-center gap-3 sm:gap-4">
+                          <button 
+                            onClick={() => setIsMuted(!isMuted)}
+                            className="p-2 sm:p-2.5 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                          >
+                            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                          </button>
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="2" 
+                            step="0.01" 
+                            value={volume} 
+                            onChange={(e) => setVolume(parseFloat(e.target.value))}
+                            className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Sound Channels */}
+                      <div className="space-y-4">
+                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2 text-sky-400">
+                          <Activity size={12} /> Sound Channels
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'ambience', label: 'Ambience', icon: <Activity size={10} /> },
+                            { id: 'tap', label: 'Taps', icon: <Star size={10} /> },
+                            { id: 'bonus', label: 'Bonuses', icon: <Zap size={10} /> },
+                            { id: 'miss', label: 'Misses', icon: <VolumeX size={10} /> },
+                            { id: 'combo', label: 'Streaks', icon: <Trophy size={10} /> }
+                          ].map((s) => (
+                            <button
+                              key={s.id}
+                              onClick={() => {
+                                const newSettings = { ...soundSettings, [s.id]: !soundSettings[s.id as keyof typeof soundSettings] };
+                                setSoundSettings(newSettings);
+                                if (newSettings[s.id as keyof typeof soundSettings]) {
+                                  playSound(s.id === 'miss' ? 60 : 440, 'sine', 0.1, 0.05);
+                                }
+                              }}
+                              className={`flex items-center gap-2 px-3 py-3 rounded-xl border transition-all text-[8px] font-black uppercase tracking-widest ${
+                                soundSettings[s.id as keyof typeof soundSettings]
+                                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                  : 'bg-slate-950 border-slate-800 text-slate-600'
+                              }`}
+                            >
+                              {s.icon}
+                              {s.label}
+                              {soundSettings[s.id as keyof typeof soundSettings] && <Check size={8} className="ml-auto" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeSettingsTab === 'PROFILE' && (
+                    <div className="space-y-6">
+                      {/* Identity */}
+                      <div className="space-y-3 sm:space-y-4">
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                          <User size={12} className="text-amber-400" /> Identity
+                        </p>
+                        {user ? (
+                          <div className="flex items-center gap-3 bg-slate-950 p-2.5 sm:p-3 rounded-2xl border border-slate-800">
+                            <img src={user.photoURL || ''} className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10" referrerPolicy="no-referrer" />
+                            <div>
+                               <p className="text-[9px] sm:text-[10px] text-white font-black uppercase tracking-widest">{user.displayName}</p>
+                               <button onClick={() => auth.signOut()} className="text-[8px] text-slate-500 hover:text-white uppercase font-bold">Logout</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={handleSignIn}
+                            className="w-full bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] flex items-center justify-center gap-2 hover:bg-slate-200 transition-all shadow-lg active:scale-95"
+                          >
+                            <Zap size={14} className="fill-current" /> Sign in with Google
+                          </button>
+                        )}
+                        <input 
+                          type="text" 
+                          maxLength={20}
+                          value={playerName}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^a-zA-Z0-9 ]/g, '');
+                            setPlayerName(val);
+                          }}
+                          className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl py-3 px-4 text-white font-black uppercase tracking-widest text-[9px] sm:text-[10px] focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-800"
+                          placeholder="SET PLAYER NAME..."
+                        />
+                      </div>
+
+                      {/* Theme Selection */}
+                      <div className="space-y-3 sm:space-y-4">
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                          <Palette size={12} className="text-emerald-400" /> Interface Theme
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(Object.keys(THEMES) as Theme[]).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => {
+                                setTheme(t);
+                                playSound(660, 'sine', 0.1, 0.05);
+                              }}
+                              className={`py-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest ${
+                                theme === t 
+                                  ? 'bg-emerald-500/10 border-emerald-500/50 text-white' 
+                                  : 'bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-700'
+                              }`}
+                            >
+                              {THEMES[t].name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Viewport */}
+                      <div className="space-y-3 sm:space-y-4">
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                          <Monitor size={12} className="text-sky-400" /> Viewport
+                        </p>
+                        <button
+                          onClick={toggleFullscreen}
+                          className={`w-full py-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest ${
+                            isFullscreen 
+                              ? 'bg-sky-500 border-sky-400 text-white shadow-lg' 
+                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                          }`}
+                        >
+                          {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+                          {isFullscreen ? 'Exit Fullscreen' : 'Enable Fullscreen'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-slate-800 bg-slate-950/50 backdrop-blur-sm sticky bottom-0 z-10 flex gap-3">
+                  <button 
+                    onClick={resetSettings}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white py-3 rounded-2xl font-black uppercase tracking-widest text-[8px] sm:text-[9px] transition-all flex items-center justify-center gap-2"
+                  >
+                    <RotateCcw size={12} /> Reset
+                  </button>
                   <button 
                     onClick={() => setShowSettings(false)}
-                    className="w-full bg-white text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-[0.2em] text-xs hover:bg-sky-400 hover:text-white active:scale-95"
+                    className="flex-1 bg-white text-slate-900 py-3 rounded-2xl font-black uppercase tracking-widest text-[8px] sm:text-[9px] hover:bg-sky-400 hover:text-white transition-all shadow-lg active:scale-95"
                   >
-                    Apply Configurations
+                    Done
                   </button>
                 </div>
               </motion.div>
