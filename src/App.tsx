@@ -479,10 +479,19 @@ export default function App() {
 
   const playBonusSound = useCallback(() => {
     if (!soundSettings.bonus) return;
-    // Shimmery arpeggio
+    // Shimmery arpeggio for bonus points
     const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98]; // C5, E5, G5, C6, E6, G6
     notes.forEach((freq, i) => {
       setTimeout(() => playSound(freq, 'sine', 0.2, 0.04, true), i * 40);
+    });
+  }, [playSound, soundSettings.bonus]);
+
+  const playBonusTimeSound = useCallback(() => {
+    if (!soundSettings.bonus) return;
+    // Rapid upward chime for time addition
+    const notes = [880, 1100, 1320, 1760]; // A5, C#6, E6, A6
+    notes.forEach((freq, i) => {
+      setTimeout(() => playSound(freq, 'sine', 0.15, 0.05, true), i * 35);
     });
   }, [playSound, soundSettings.bonus]);
 
@@ -819,8 +828,10 @@ export default function App() {
     setCircles(prev => prev.filter(c => c.id !== circle.id));
     
     // Play sound logic
-    if (circle.type !== 'NORMAL') {
+    if (circle.type === 'BONUS_POINTS') {
       playBonusSound();
+    } else if (circle.type === 'BONUS_TIME') {
+      playBonusTimeSound();
     } else {
       // Regular tap sound with dynamic frequency
       const now = Date.now();
@@ -885,7 +896,7 @@ export default function App() {
     }, 800);
 
     setSpeed(prev => Math.max(400, prev - 20));
-  }, [difficulty, playBonusSound, playComboMilestoneSound, playSound]);
+  }, [difficulty, playBonusSound, playBonusTimeSound, playComboMilestoneSound, playSound]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
